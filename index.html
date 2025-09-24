@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>热门导航 - 网址大全</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .search-box {
+            background: white;
+            border-radius: 25px;
+            padding: 15px 25px;
+            margin-bottom: 40px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .search-input {
+            width: 100%;
+            border: none;
+            outline: none;
+            font-size: 1.1rem;
+            padding: 10px 0;
+        }
+
+        .categories {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+        }
+
+        .category {
+            background: rgba(255,255,255,0.95);
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .category:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+        }
+
+        .category-title {
+            font-size: 1.3rem;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: #5a67d8;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 10px;
+            display: flex;
+            align-items: center;
+        }
+
+        .category-icon {
+            margin-right: 10px;
+            font-size: 1.5rem;
+        }
+
+        .links {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 12px;
+        }
+
+        .link {
+            display: block;
+            padding: 12px 16px;
+            text-decoration: none;
+            color: #4a5568;
+            border-radius: 12px;
+            transition: all 0.3s ease;
+            text-align: center;
+            font-size: 0.9rem;
+            border: 1px solid #e2e8f0;
+            background: linear-gradient(145deg, #f8f9fa, #e9ecef);
+        }
+
+        .link:hover {
+            background: linear-gradient(145deg, #667eea, #764ba2);
+            color: white;
+            transform: scale(1.05);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 50px;
+            color: white;
+            opacity: 0.8;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .categories {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+            
+            .links {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌟 热门导航</h1>
+            <p>精选热门网站，一站式上网导航</p>
+        </div>
+
+        <div class="search-box">
+            <input type="text" class="search-input" placeholder="搜索网站或输入网址..." onkeypress="handleSearch(event)">
+        </div>
+
+        <div class="categories">
+            <!-- 搜索引擎 -->
+            <div class="category">
+                <div class="category-title">
+                    <span class="category-icon">🔍</span>搜索引擎
+                </div>
+                <div class="links">
+                    <a href="https://www.baidu.com" class="link" target="_blank">百度</a>
+                    <a href="https://www.sogou.com" class="link" target="_blank">搜狗</a>
+                    <a href="https://www.so.com" class="link" target="_blank">360搜索</a>
+                    <a href="https://www.bing.com" class="link" target="_blank">必应</a>
+                </div>
+            </div>
+
+            <!-- 影视娱乐 -->
+            <div class="category">
+                <div class="category-title">
+                    <span class="category-icon">🎬</span>影视娱乐
+                </div>
+                <div class="links">
+                    <a href="https://www.iqiyi.com" class="link" target="_blank">爱奇艺</a>
+                    <a href="https://v.qq.com" class="link" target="_blank">腾讯视频</a>
+                    <a href="https://www.youku.com" class="link" target="_blank">优酷</a>
+                    <a href="https://www.bilibili.com" class="link" target="_blank">哔哩哔哩</a>
+                    <a href="https://tv.sohu.com" class="link" target="_blank">搜狐视频</a>
+                    <a href="https://www.mgtv.com" class="link" target="_blank">芒果TV</a>
+                </div>
+            </div>
+
+            <!-- 小说阅读 -->
+            <div class="category">
+                <div class="category-title">
+                    <span class="category-icon">📚</span>小说阅读
+                </div>
+                <div class="links">
+                    <a href="https://www.qidian.com" class="link" target="_blank">起点中文网</a>
+                    <a href="https://www.zongheng.com" class="link" target="_blank">纵横中文网</a>
+                    <a href="https://www.17k.com" class="link" target="_blank">17K小说网</a>
+                    <a href="https://www.jjwxc.net" class="link" target="_blank">晋江文学城</a>
+                    <a href="https://www.hongxiu.com" class="link" target="_blank">红袖添香</a>
+                    <a href="https://www.readnovel.com" class="link" target="_blank">小说阅读网</a>
+                </div>
+            </div>
+
+            <!-- 社交媒体 -->
+            <div class="category">
+                <div class="category-title">
+                    <span class="category-icon">💬</span>社交媒体
+                </div>
+                <div class="links">
+                    <a href="https://weibo.com" class="link" target="_blank">新浪微博</a>
+                    <a href="https://www.zhihu.com" class="link" target="_blank">知乎</a>
+                    <a href="https://tieba.baidu.com" class="link" target="_blank">百度贴吧</a>
+                    <a href="https://www.douban.com" class="link" target="_blank">豆瓣</a>
+                    <a href="https://www.xiaohongshu.com" class="link" target="_blank">小红书</a>
+                    <a href="https://www.toutiao.com" class="link" target="_blank">今日头条</a>
+                </div>
+            </div>
+
+            <!-- 新闻资讯 -->
+            <div class="category">
+                <div class="category-title">
+                    <span class="category-icon">📰</span>新闻资讯
+                </div>
+                <div class="links">
+                    <a href="https://www.xinhuanet.com" class="link" target="_blank">新华网</a>
+                    <a href="https://www.people.com.cn" class="link" target="_blank">人民网</a>
+                    <a href="https://www.163.com" class="link" target="_blank">网易</a>
+                    <a href="https://www.sina.com.cn" class="link" target="_blank">新浪</a>
+                    <a href="https://www.sohu.com" class="link" target="_blank">搜狐</a>
+                    <a href="https://www.ifeng.com" class="link" target="_blank">凤凰网</a>
+                </div>
+            </div>
+
+            <!-- 购物网站 -->
+            <div class="category">
+                <div class="category-title">
+                    <span class="category-icon">🛒</span>购物网站
+                </div>
+                <div class="links">
+                    <a href="https://www.taobao.com" class="link" target="_blank">淘宝</a>
+                    <a href="https://www.tmall.com" class="link" target="_blank">天猫</a>
+                    <a href="https://www.jd.com" class="link" target="_blank">京东</a>
+                    <a href="https://www.pinduoduo.com" class="link" target="_blank">拼多多</a>
+                    <a href="https://www.suning.com" class="link" target="_blank">苏宁易购</a>
+                    <a href="https://www.vip.com" class="link" target="_blank">唯品会</a>
+                </div>
+            </div>
+
+            <!-- 游戏娱乐 -->
+            <div class="category">
+                <div class="category-title">
+                    <span class="category-icon">🎮</span>游戏娱乐
+                </div>
+                <div class="links">
+                    <a href="https://lol.qq.com" class="link" target="_blank">英雄联盟</a>
+                    <a href="https://pvp.qq.com" class="link" target="_blank">王者荣耀</a>
+                    <a href="https://www.4399.com" class="link" target="_blank">4399游戏</a>
+                    <a href="https://game.163.com" class="link" target="_blank">网易游戏</a>
+                    <a href="https://steam.com" class="link" target="_blank">Steam</a>
+                    <a href="https://www.17173.com" class="link" target="_blank">17173</a>
+                </div>
+            </div>
+
+            <!-- 音乐 -->
+            <div class="category">
+                <div class="category-title">
+                    <span class="category-icon">🎵</span>音乐
+                </div>
+                <div class="links">
+                    <a href="https://music.163.com" class="link" target="_blank">网易云音乐</a>
+                    <a href="https://y.qq.com" class="link" target="_blank">QQ音乐</a>
+                    <a href="https://www.kugou.com" class="link" target="_blank">酷狗音乐</a>
+                    <a href="https://www.kuwo.cn" class="link" target="_blank">酷我音乐</a>
+                    <a href="https://www.xiami.com" class="link" target="_blank">虾米音乐</a>
+                    <a href="https://www.migu.cn" class="link" target="_blank">咪咕音乐</a>
+                </div>
+            </div>
+
+            <!-- 工具网站 -->
+            <div class="category">
+                <div class="category-title">
+                    <span class="category-icon">🔧</span>实用工具
+                </div>
+                <div class="links">
+                    <a href="https://fanyi.baidu.com" class="link" target="_blank">百度翻译</a>
+                    <a href="https://www.weather.com.cn" class="link" target="_blank">天气预报</a>
+                    <a href="https://map.baidu.com" class="link" target="_blank">百度地图</a>
+                    <a href="https://www.12306.cn" class="link" target="_blank">12306</a>
+                    <a href="https://www.mafengwo.cn" class="link" target="_blank">蚂蜂窝</a>
+                    <a href="https://www.ctrip.com" class="link" target="_blank">携程</a>
+                </div>
+            </div>
+
+            <!-- 金融理财 -->
+            <div class="category">
+                <div class="category-title">
+                    <span class="category-icon">💰</span>金融理财
+                </div>
+                <div class="links">
+                    <a href="https://www.alipay.com" class="link" target="_blank">支付宝</a>
+                    <a href="https://www.icbc.com.cn" class="link" target="_blank">工商银行</a>
+                    <a href="https://www.ccb.com" class="link" target="_blank">建设银行</a>
+                    <a href="https://www.abchina.com" class="link" target="_blank">农业银行</a>
+                    <a href="https://www.boc.cn" class="link" target="_blank">中国银行</a>
+                    <a href="https://fund.eastmoney.com" class="link" target="_blank">东方财富</a>
+                </div>
+            </div>
+
+            <!-- 教育学习 -->
+            <div class="category">
+                <div class="category-title">
+                    <span class="category-icon">🎓</span>教育学习
+                </div>
+                <div class="links">
+                    <a href="https://www.xuetangx.com" class="link" target="_blank">学堂在线</a>
+                    <a href="https://www.icourse163.org" class="link" target="_blank">中国大学MOOC</a>
+                    <a href="https://www.zxxk.com" class="link" target="_blank">学科网</a>
+                    <a href="https://www.koolearn.com" class="link" target="_blank">新东方在线</a>
+                    <a href="https://www.yuanfudao.com" class="link" target="_blank">猿辅导</a>
+                    <a href="https://www.vipkid.com.cn" class="link" target="_blank">VIPKID</a>
+                </div>
+            </div>
+
+            <!-- 科技数码 -->
+            <div class="category">
+                <div class="category-title">
+                    <span class="category-icon">📱</span>科技数码
+                </div>
+                <div class="links">
+                    <a href="https://www.ithome.com" class="link" target="_blank">IT之家</a>
+                    <a href="https://www.cnbeta.com" class="link" target="_blank">cnBeta</a>
+                    <a href="https://www.36kr.com" class="link" target="_blank">36氪</a>
+                    <a href="https://www.huxiu.com" class="link" target="_blank">虎嗅网</a>
+                    <a href="https://www.pingwest.com" class="link" target="_blank">PingWest</a>
+                    <a href="https://www.leiphone.com" class="link" target="_blank">雷锋网</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>&copy; 2024 热门导航 - 为您提供最便捷的网址导航服务</p>
+        </div>
+    </div>
+
+    <script>
+        function handleSearch(event) {
+            if (event.key === 'Enter') {
+                const query = event.target.value.trim();
+                if (query) {
+                    // 检查是否是网址
+                    if (query.includes('.') && !query.includes(' ')) {
+                        // 可能是网址
+                        const url = query.startsWith('http') ? query : 'https://' + query;
+                        window.open(url, '_blank');
+                    } else {
+                        // 搜索关键词
+                        const searchUrl = 'https://www.baidu.com/s?wd=' + encodeURIComponent(query);
+                        window.open(searchUrl, '_blank');
+                    }
+                    event.target.value = '';
+                }
+            }
+        }
+
+        // 添加页面加载动画
+        document.addEventListener('DOMContentLoaded', function() {
+            const categories = document.querySelectorAll('.category');
+            categories.forEach((category, index) => {
+                category.style.opacity = '0';
+                category.style.transform = 'translateY(30px)';
+                setTimeout(() => {
+                    category.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+                    category.style.opacity = '1';
+                    category.style.transform = 'translateY(0)';
+                }, index * 100);
+            });
+        });
+    </script>
+</body>
+</html>
