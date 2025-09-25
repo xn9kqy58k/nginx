@@ -1,10 +1,6 @@
 #!/bin/bash
+# Trojan-gRPC 一键部署脚本（webroot方式申请证书，支持命令行传入域名和邮箱）
 
-# ==============================
-# Trojan-gRPC 一键部署脚本（含自动伪装页 & 自动续签）
-# ==============================
-
-# 必须 root
 if [ "$(id -u)" -ne 0 ]; then
     echo "❌ 请用 root 权限运行此脚本"
     exit 1
@@ -14,7 +10,6 @@ fi
 DOMAIN=$1
 EMAIL=$2
 
-# 参数为空则退出
 if [ -z "$DOMAIN" ] || [ -z "$EMAIL" ]; then
     echo "❌ 使用方法: bash $0 <域名> <邮箱>"
     echo "例如: bash $0 example.com you@example.com"
@@ -25,38 +20,32 @@ echo "✅ 使用域名: $DOMAIN"
 echo "✅ 使用邮箱: $EMAIL"
 
 # 安装依赖
-echo "📦 安装依赖：Nginx, Certbot 和 Cron..."
 apt update -y
 apt install -y nginx certbot python3-certbot-nginx curl wget cron
 
-# 检查防火墙是否开放端口 80 和 443
-if command -v ufw >/dev/null 2>&1; then
-    ufw allow 80/tcp
-    ufw allow 443/tcp
-    ufw reload
-fi
-
-# 删除默认站点
-rm -f /etc/nginx/sites-enabled/default
-
-# 下载伪装页面
+# 创建伪装页目录
 WWW_DIR="/var/www/html"
 mkdir -p "$WWW_DIR"
 cd "$WWW_DIR" || exit 1
 
-FAKE_HTML_URL="https://raw.githubusercontent.com/xn9kqy58k/nginx/main/index.html"
-if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$FAKE_HTML_URL" -o index.html
-elif command -v wget >/dev/null 2>&1; then
-    wget -q "$FAKE_HTML_URL" -O index.html
-else
-    echo "⚠️ 无法下载伪装页面，请安装 curl 或 wget"
-fi
-
+# 下载伪装页面
+curl -fsSL https://raw.githubusercontent.com/xn9kqy58k/nginx/main/index.html -o index.html
 chown -R www-data:www-data "$WWW_DIR"
 chmod -R 755 "$WWW_DIR"
 
-# 写 Nginx 配置
+# 启动 Nginx 默认站点，确保 80 端口可访问
+systemctl enable nginx
+systemctl restart nginx
+
+# 先用 webroot 模式申请证书
+echo "🔑 正在申请 SSL 证书（webroot 模式）..."
+certbot certonly --webroot -w "$WWW_DIR" -d "$DOMAIN" --email "$EMAIL" --agree-tos --non-interactive
+if [ $? -ne 0 ]; then
+    echo "❌ 证书申请失败，请检查域名解析和端口"
+    exit 1
+fi
+
+# 写完整 Nginx 配置
 CONF_FILE="/etc/nginx/conf.d/trojan-grpc.conf"
 cat > $CONF_FILE <<EOF
 user www-data;
@@ -141,13 +130,6 @@ http {
 }
 EOF
 
-# 申请证书
-certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email "$EMAIL"
-if [ $? -ne 0 ]; then
-    echo "❌ 证书申请失败，请检查域名解析和端口"
-    exit 1
-fi
-
 # 检查配置并重载 Nginx
 nginx -t && systemctl reload nginx
 
@@ -155,7 +137,6 @@ nginx -t && systemctl reload nginx
 cat > /etc/cron.d/certbot-renew <<CRON
 0 3 * * * root certbot renew --quiet && systemctl reload nginx
 CRON
-
 systemctl enable cron
 systemctl restart cron
 
@@ -163,3 +144,4 @@ echo "🎉 部署完成！Trojan-gRPC 已启用"
 echo "👉 域名: $DOMAIN"
 echo "👉 配置文件: $CONF_FILE"
 echo "👉 伪装页面: /var/www/html/index.html"
+echo "🔄 证书每天凌晨 3 点自动检查续签"
