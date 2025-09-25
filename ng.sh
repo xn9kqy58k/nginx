@@ -1,53 +1,47 @@
 #!/bin/bash
-# Trojan-gRPC 一键部署脚本（webroot方式申请证书，支持命令行传入域名和邮箱）
+# 半自动化部署 Trojan-gRPC + Nginx + Certbot
 
 if [ "$(id -u)" -ne 0 ]; then
-    echo "❌ 请用 root 权限运行此脚本"
+    echo "❌ 请用 root 权限运行"
     exit 1
 fi
 
-# 获取命令行参数
-DOMAIN=$1
-EMAIL=$2
+# 输入域名和邮箱
+read -p "请输入域名（例如: example.com）: " DOMAIN
+read -p "请输入邮箱（用于证书通知）: " EMAIL
 
 if [ -z "$DOMAIN" ] || [ -z "$EMAIL" ]; then
-    echo "❌ 使用方法: bash $0 <域名> <邮箱>"
-    echo "例如: bash $0 example.com you@example.com"
+    echo "❌ 域名和邮箱不能为空"
     exit 1
 fi
 
-echo "✅ 使用域名: $DOMAIN"
-echo "✅ 使用邮箱: $EMAIL"
-
-# 安装依赖
+# 安装组件
+echo "📦 安装 Nginx 和 Certbot..."
 apt update -y
-apt install -y nginx certbot python3-certbot-nginx curl wget cron
+apt install -y nginx certbot python3-certbot-nginx curl wget
 
-# 创建伪装页目录
+# 创建伪装页
 WWW_DIR="/var/www/html"
 mkdir -p "$WWW_DIR"
-cd "$WWW_DIR" || exit 1
-
-# 下载伪装页面
-curl -fsSL https://raw.githubusercontent.com/xn9kqy58k/nginx/main/index.html -o index.html
+curl -fsSL https://raw.githubusercontent.com/xn9kqy58k/nginx/main/index.html -o "$WWW_DIR/index.html"
 chown -R www-data:www-data "$WWW_DIR"
 chmod -R 755 "$WWW_DIR"
 
-# 启动 Nginx 默认站点，确保 80 端口可访问
+# 启动默认 Nginx
 systemctl enable nginx
 systemctl restart nginx
 
-# 先用 webroot 模式申请证书
-echo "🔑 正在申请 SSL 证书（webroot 模式）..."
+# 申请证书（webroot 模式）
+echo "🔑 正在申请 SSL 证书..."
 certbot certonly --webroot -w "$WWW_DIR" -d "$DOMAIN" --email "$EMAIL" --agree-tos --non-interactive
 if [ $? -ne 0 ]; then
-    echo "❌ 证书申请失败，请检查域名解析和端口"
+    echo "❌ 证书申请失败，请检查域名解析和 80 端口"
     exit 1
 fi
 
-# 写完整 Nginx 配置
+# 写 Nginx 配置
 CONF_FILE="/etc/nginx/conf.d/trojan-grpc.conf"
-cat > $CONF_FILE <<EOF
+cat > "$CONF_FILE" <<EOF
 user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
@@ -113,7 +107,6 @@ http {
             grpc_set_header X-Real-IP \$remote_addr;
             grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
             grpc_set_header X-Forwarded-Proto https;
-            grpc_set_header TE trailers;
             grpc_connect_timeout 60s;
             grpc_send_timeout 3600s;
             grpc_read_timeout 3600s;
@@ -127,11 +120,24 @@ http {
             add_header Cache-Control "no-cache";
         }
     }
+
+    server {
+        listen 80 default_server;
+        listen [::]:80 default_server;
+        listen 443 ssl default_server;
+        listen [::]:443 ssl default_server;
+        server_name _;
+
+        ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+
+        return 444;
+    }
 }
 EOF
 
-# 检查配置并重载 Nginx
-nginx -t && systemctl reload nginx
+# 检查配置并重启 Nginx
+nginx -t && systemctl restart nginx
 
 # 自动续签
 cat > /etc/cron.d/certbot-renew <<CRON
@@ -143,5 +149,4 @@ systemctl restart cron
 echo "🎉 部署完成！Trojan-gRPC 已启用"
 echo "👉 域名: $DOMAIN"
 echo "👉 配置文件: $CONF_FILE"
-echo "👉 伪装页面: /var/www/html/index.html"
-echo "🔄 证书每天凌晨 3 点自动检查续签"
+echo "👉 伪装页面: $WWW_DIR/index.html"
