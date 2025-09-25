@@ -10,12 +10,14 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-# 输入域名和邮箱
-read -p "请输入您的域名 (例如：yourdomain.com): " DOMAIN
-read -p "请输入您的邮箱 (用于证书申请通知): " EMAIL
+# 获取命令行参数
+DOMAIN=$1
+EMAIL=$2
 
+# 参数为空则退出
 if [ -z "$DOMAIN" ] || [ -z "$EMAIL" ]; then
-    echo "❌ 域名和邮箱不能为空"
+    echo "❌ 使用方法: bash $0 <域名> <邮箱>"
+    echo "例如: bash $0 example.com you@example.com"
     exit 1
 fi
 
@@ -23,23 +25,21 @@ echo "✅ 使用域名: $DOMAIN"
 echo "✅ 使用邮箱: $EMAIL"
 
 # 安装依赖
-echo "📦 安装 Nginx, Certbot 和 Cron..."
+echo "📦 安装依赖：Nginx, Certbot 和 Cron..."
 apt update -y
 apt install -y nginx certbot python3-certbot-nginx curl wget cron
 
-# 删除默认站点，避免冲突
-rm -f /etc/nginx/sites-enabled/default
-
-# 申请证书
-echo "🔑 正在申请 SSL 证书..."
-certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email "$EMAIL"
-if [ $? -ne 0 ]; then
-    echo "❌ 证书申请失败，请检查域名解析和端口是否正常"
-    exit 1
+# 检查防火墙是否开放端口 80 和 443
+if command -v ufw >/dev/null 2>&1; then
+    ufw allow 80/tcp
+    ufw allow 443/tcp
+    ufw reload
 fi
 
+# 删除默认站点
+rm -f /etc/nginx/sites-enabled/default
+
 # 下载伪装页面
-echo "🖼️ 正在下载伪装页面..."
 WWW_DIR="/var/www/html"
 mkdir -p "$WWW_DIR"
 cd "$WWW_DIR" || exit 1
@@ -50,7 +50,7 @@ if command -v curl >/dev/null 2>&1; then
 elif command -v wget >/dev/null 2>&1; then
     wget -q "$FAKE_HTML_URL" -O index.html
 else
-    echo "⚠️ 无法下载伪装页面，请安装 curl 或 wget 后手动放置 index.html"
+    echo "⚠️ 无法下载伪装页面，请安装 curl 或 wget"
 fi
 
 chown -R www-data:www-data "$WWW_DIR"
@@ -58,13 +58,10 @@ chmod -R 755 "$WWW_DIR"
 
 # 写 Nginx 配置
 CONF_FILE="/etc/nginx/conf.d/trojan-grpc.conf"
-echo "⚙️ 生成 Nginx 配置: $CONF_FILE"
-
 cat > $CONF_FILE <<EOF
 user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
-error_log /var/log/nginx/error.log warn;
 
 events {
     worker_connections 1024;
@@ -141,35 +138,20 @@ http {
             add_header Cache-Control "no-cache";
         }
     }
-
-    server {
-        listen 80 default_server;
-        listen [::]:80 default_server;
-        listen 443 ssl default_server;
-        listen [::]:443 ssl default_server;
-        server_name _;
-
-        ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
-        ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
-
-        return 444;
-    }
 }
 EOF
 
-# 检查配置并重启 Nginx
-echo "🔍 检查 Nginx 配置..."
-nginx -t
-if [ $? -eq 0 ]; then
-    echo "✅ 配置正确，重载 Nginx..."
-    systemctl reload nginx
-else
-    echo "❌ Nginx 配置有问题，请检查错误日志"
+# 申请证书
+certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email "$EMAIL"
+if [ $? -ne 0 ]; then
+    echo "❌ 证书申请失败，请检查域名解析和端口"
     exit 1
 fi
 
-# 添加自动续签任务
-echo "🕒 设置自动续签..."
+# 检查配置并重载 Nginx
+nginx -t && systemctl reload nginx
+
+# 自动续签
 cat > /etc/cron.d/certbot-renew <<CRON
 0 3 * * * root certbot renew --quiet && systemctl reload nginx
 CRON
@@ -181,4 +163,3 @@ echo "🎉 部署完成！Trojan-gRPC 已启用"
 echo "👉 域名: $DOMAIN"
 echo "👉 配置文件: $CONF_FILE"
 echo "👉 伪装页面: /var/www/html/index.html"
-echo "🔄 证书每天凌晨 3 点自动检查续签"
