@@ -1,12 +1,15 @@
 #!/bin/bash
-# 半自动化部署 Trojan-gRPC + Nginx + Certbot
+# =============================
+# 稳妥版 Trojan-gRPC 部署脚本
+# 半自动化：先启动默认 Nginx，再申请证书
+# =============================
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "❌ 请用 root 权限运行"
     exit 1
 fi
 
-# 输入域名和邮箱
+# 交互输入
 read -p "请输入域名（例如: example.com）: " DOMAIN
 read -p "请输入邮箱（用于证书通知）: " EMAIL
 
@@ -15,10 +18,9 @@ if [ -z "$DOMAIN" ] || [ -z "$EMAIL" ]; then
     exit 1
 fi
 
-# 安装组件
-echo "📦 安装 Nginx 和 Certbot..."
+echo "📦 安装依赖：Nginx + Certbot"
 apt update -y
-apt install -y nginx certbot python3-certbot-nginx curl wget
+apt install -y nginx certbot python3-certbot-nginx curl wget cron
 
 # 创建伪装页
 WWW_DIR="/var/www/html"
@@ -27,11 +29,20 @@ curl -fsSL https://raw.githubusercontent.com/xn9kqy58k/nginx/main/index.html -o 
 chown -R www-data:www-data "$WWW_DIR"
 chmod -R 755 "$WWW_DIR"
 
-# 启动默认 Nginx
+# 启动默认 Nginx，确保 80 端口可访问
 systemctl enable nginx
 systemctl restart nginx
 
-# 申请证书（webroot 模式）
+# 测试 80 端口是否可访问
+echo "🌐 测试域名是否解析到本 VPS..."
+sleep 2
+if ! curl -sI "http://$DOMAIN" | grep -q "200\|301\|302"; then
+    echo "⚠️ 域名 $DOMAIN 可能没有正确解析到当前 VPS 或 80 端口被阻挡"
+    echo "请先确保域名解析到本 VPS，并开放 80 端口"
+    read -p "确认后按回车继续，或 Ctrl+C 退出"
+fi
+
+# 申请证书（webroot 模式，先启动默认页面保证申请成功）
 echo "🔑 正在申请 SSL 证书..."
 certbot certonly --webroot -w "$WWW_DIR" -d "$DOMAIN" --email "$EMAIL" --agree-tos --non-interactive
 if [ $? -ne 0 ]; then
@@ -39,7 +50,7 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# 写 Nginx 配置
+# 写完整 Nginx 配置
 CONF_FILE="/etc/nginx/conf.d/trojan-grpc.conf"
 cat > "$CONF_FILE" <<EOF
 user www-data;
@@ -136,15 +147,23 @@ http {
 }
 EOF
 
-# 检查配置并重启 Nginx
+# 检查并重启 Nginx
+echo "🔍 检查 Nginx 配置..."
 nginx -t && systemctl restart nginx
 
-# 自动续签
+# 设置证书自动续签
 cat > /etc/cron.d/certbot-renew <<CRON
 0 3 * * * root certbot renew --quiet && systemctl reload nginx
 CRON
 systemctl enable cron
 systemctl restart cron
+
+echo "🎉 部署完成！Trojan-gRPC 已启用"
+echo "👉 域名: $DOMAIN"
+echo "👉 配置文件: $CONF_FILE"
+echo "👉 伪装页面: $WWW_DIR/index.html"
+echo "🔄 证书每天凌晨 3 点自动续签"
+
 
 echo "🎉 部署完成！Trojan-gRPC 已启用"
 echo "👉 域名: $DOMAIN"
