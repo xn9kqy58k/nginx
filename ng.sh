@@ -1,14 +1,12 @@
 #!/bin/bash
-# =============================
-# 稳妥版 Trojan-gRPC 部署脚本
-# =============================
+# 自动化部署 Trojan-gRPC + Nginx + Certbot
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "❌ 请用 root 权限运行"
     exit 1
 fi
 
-# 交互输入
+# 输入域名和邮箱
 read -p "请输入域名（例如: example.com）: " DOMAIN
 read -p "请输入邮箱（用于证书通知）: " EMAIL
 
@@ -17,9 +15,16 @@ if [ -z "$DOMAIN" ] || [ -z "$EMAIL" ]; then
     exit 1
 fi
 
-echo "📦 安装依赖：Nginx + Certbot + Cron"
+echo "✅ 使用域名: $DOMAIN"
+echo "✅ 使用邮箱: $EMAIL"
+
+# 安装依赖
+echo "📦 安装 Nginx 和 Certbot..."
 apt update -y
 apt install -y nginx certbot python3-certbot-nginx curl wget cron
+
+# 删除默认配置，避免端口冲突
+rm -f /etc/nginx/sites-enabled/default
 
 # 创建伪装页
 WWW_DIR="/var/www/html"
@@ -28,22 +33,9 @@ curl -fsSL https://raw.githubusercontent.com/xn9kqy58k/nginx/main/index.html -o 
 chown -R www-data:www-data "$WWW_DIR"
 chmod -R 755 "$WWW_DIR"
 
-# 启动默认 Nginx，确保 80 端口可访问
+# 启动 Nginx，确保 80 端口可用
 systemctl enable nginx
 systemctl restart nginx
-
-# 确保 cron 启动
-systemctl enable cron
-systemctl start cron
-
-# 测试 80 端口访问
-echo "🌐 测试域名是否解析到本 VPS..."
-sleep 2
-if ! curl -sI "http://$DOMAIN" | grep -q "200\|301\|302"; then
-    echo "⚠️ 域名 $DOMAIN 可能没有正确解析到当前 VPS 或 80 端口被阻挡"
-    echo "请确认解析正确后再执行证书申请"
-    read -p "确认后按回车继续，或 Ctrl+C 退出"
-fi
 
 # 申请证书（webroot 模式）
 echo "🔑 正在申请 SSL 证书..."
@@ -53,7 +45,7 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# 写 Nginx 配置（conf.d 只保留 server{}）
+# 写入 Nginx 配置
 CONF_FILE="/etc/nginx/conf.d/trojan-grpc.conf"
 cat > "$CONF_FILE" <<EOF
 upstream grpc_backend {
@@ -116,17 +108,21 @@ server {
 }
 EOF
 
-# 检查 Nginx 配置并重启
+# 清理 CRLF (\r) 隐藏符
+sed -i 's/\r//g' "$CONF_FILE"
+
+# 检查并重启 Nginx
 nginx -t && systemctl restart nginx
 
-# 设置证书自动续签
+# 自动续签
 cat > /etc/cron.d/certbot-renew <<CRON
 0 3 * * * root certbot renew --quiet && systemctl reload nginx
 CRON
+systemctl enable cron
+systemctl restart cron
 
 echo "🎉 部署完成！Trojan-gRPC 已启用"
 echo "👉 域名: $DOMAIN"
 echo "👉 配置文件: $CONF_FILE"
 echo "👉 伪装页面: $WWW_DIR/index.html"
-echo "🔄 证书每天凌晨 3 点自动续签"
-
+echo "🔄 证书每天凌晨 3 点自动检查续签"
