@@ -1,7 +1,8 @@
 ## 一键部署命令
 
 ```bash
-curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/ng.sh | bash
+bash <(curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/ng.sh)
+
 ```
 # 检查 Nginx 配置语法
 ```bash
