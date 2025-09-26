@@ -73,7 +73,7 @@ server {
         grpc_set_header X-Real-IP \$remote_addr;
         grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         grpc_set_header X-Forwarded-Proto https;
-        grpc_connect_timeout 60s;
+        grpc_connect_timeout 120s;
         grpc_send_timeout 3600s;
         grpc_read_timeout 3600s;
     }
