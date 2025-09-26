@@ -1,5 +1,5 @@
 #!/bin/bash
-# 自动化部署 Trojan-gRPC + Nginx + Certbot (Standalone 模式)
+# 自动化部署 Nginx + ssl)
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "❌ 请用 root 权限运行"
