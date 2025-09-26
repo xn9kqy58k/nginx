@@ -1,5 +1,5 @@
 #!/bin/bash
-# 自动化部署 Trojan-gRPC + Nginx + Certbot (Standalone 模式 + DNS 检查 + 80端口检测)
+# 自动化部署 Trojan-gRPC + Nginx + Certbot (Standalone 模式)
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "❌ 请用 root 权限运行"
@@ -15,35 +15,10 @@ if [ -z "$DOMAIN" ] || [ -z "$EMAIL" ]; then
     exit 1
 fi
 
-# 获取本机公网 IP
-SERVER_IP=$(curl -s ipv4.icanhazip.com)
-if [ -z "$SERVER_IP" ]; then
-    echo "❌ 无法获取本机公网 IP"
-    exit 1
-fi
-
-# 获取域名解析 IP
-DOMAIN_IP=$(dig +short A $DOMAIN | tail -n1)
-
-if [ "$DOMAIN_IP" != "$SERVER_IP" ]; then
-    echo "⚠️ 域名解析不正确"
-    echo "👉 域名 $DOMAIN 当前解析到: $DOMAIN_IP"
-    echo "👉 但本机 IP 是: $SERVER_IP"
-    echo "请确认 DNS 已正确解析再运行脚本"
-    exit 1
-fi
-
-# 检查80端口是否被占用
-if ss -tlnp | grep -q ":80"; then
-    echo "❌ 80 端口已被占用，请先释放该端口再运行脚本"
-    ss -tlnp | grep ":80"
-    exit 1
-fi
-
 # 安装组件
 echo "📦 安装 Nginx 和 Certbot..."
 apt update -y
-apt install -y nginx certbot python3-certbot-nginx curl wget dnsutils
+apt install -y nginx certbot python3-certbot-nginx curl wget
 
 # 停止 Nginx，避免端口占用
 systemctl stop nginx
