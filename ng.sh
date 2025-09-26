@@ -88,6 +88,9 @@ server {
 }
 EOF
 
+# 去掉不可见字符
+sed -i 's/[\r]//g' "$CONF_FILE"
+
 # 启动 Nginx
 nginx -t && systemctl restart nginx && systemctl enable nginx
 
