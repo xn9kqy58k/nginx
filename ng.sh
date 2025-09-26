@@ -1,5 +1,5 @@
 #!/bin/bash
-# 自动化部署 Trojan-gRPC + Nginx + Certbot
+# 自动化部署 Trojan-gRPC + Nginx + Certbot (Standalone 模式 + DNS 检查 + 80端口检测)
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "❌ 请用 root 权限运行"
@@ -15,16 +15,46 @@ if [ -z "$DOMAIN" ] || [ -z "$EMAIL" ]; then
     exit 1
 fi
 
-echo "✅ 使用域名: $DOMAIN"
-echo "✅ 使用邮箱: $EMAIL"
+# 获取本机公网 IP
+SERVER_IP=$(curl -s ipv4.icanhazip.com)
+if [ -z "$SERVER_IP" ]; then
+    echo "❌ 无法获取本机公网 IP"
+    exit 1
+fi
 
-# 安装依赖
+# 获取域名解析 IP
+DOMAIN_IP=$(dig +short A $DOMAIN | tail -n1)
+
+if [ "$DOMAIN_IP" != "$SERVER_IP" ]; then
+    echo "⚠️ 域名解析不正确"
+    echo "👉 域名 $DOMAIN 当前解析到: $DOMAIN_IP"
+    echo "👉 但本机 IP 是: $SERVER_IP"
+    echo "请确认 DNS 已正确解析再运行脚本"
+    exit 1
+fi
+
+# 检查80端口是否被占用
+if ss -tlnp | grep -q ":80"; then
+    echo "❌ 80 端口已被占用，请先释放该端口再运行脚本"
+    ss -tlnp | grep ":80"
+    exit 1
+fi
+
+# 安装组件
 echo "📦 安装 Nginx 和 Certbot..."
 apt update -y
-apt install -y nginx certbot python3-certbot-nginx curl wget cron
+apt install -y nginx certbot python3-certbot-nginx curl wget dnsutils
 
-# 删除默认配置，避免端口冲突
-rm -f /etc/nginx/sites-enabled/default
+# 停止 Nginx，避免端口占用
+systemctl stop nginx
+
+# 申请证书（standalone 模式）
+echo "🔑 正在申请 SSL 证书 (Standalone 模式)..."
+certbot certonly --standalone -d "$DOMAIN" --email "$EMAIL" --agree-tos --no-eff-email --non-interactive
+if [ $? -ne 0 ]; then
+    echo "❌ 证书申请失败，请检查域名解析和 80 端口"
+    exit 1
+fi
 
 # 创建伪装页
 WWW_DIR="/var/www/html"
@@ -33,19 +63,7 @@ curl -fsSL https://raw.githubusercontent.com/xn9kqy58k/nginx/main/index.html -o 
 chown -R www-data:www-data "$WWW_DIR"
 chmod -R 755 "$WWW_DIR"
 
-# 启动 Nginx，确保 80 端口可用
-systemctl enable nginx
-systemctl restart nginx
-
-# 申请证书（webroot 模式）
-echo "🔑 正在申请 SSL 证书..."
-certbot certonly --webroot -w "$WWW_DIR" -d "$DOMAIN" --email "$EMAIL" --agree-tos --non-interactive
-if [ $? -ne 0 ]; then
-    echo "❌ 证书申请失败，请检查域名解析和 80 端口"
-    exit 1
-fi
-
-# 写入 Nginx 配置
+# 写 Nginx 配置
 CONF_FILE="/etc/nginx/conf.d/trojan-grpc.conf"
 cat > "$CONF_FILE" <<EOF
 upstream grpc_backend {
@@ -93,36 +111,17 @@ server {
         add_header Cache-Control "no-cache";
     }
 }
-
-server {
-    listen 80 default_server;
-    listen [::]:80 default_server;
-    listen 443 ssl default_server;
-    listen [::]:443 ssl default_server;
-    server_name _;
-
-    ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
-
-    return 444;
-}
 EOF
 
-# 清理 CRLF (\r) 隐藏符
-sed -i 's/\r//g' "$CONF_FILE"
-
-# 检查并重启 Nginx
-nginx -t && systemctl restart nginx
+# 启动 Nginx
+nginx -t && systemctl restart nginx && systemctl enable nginx
 
 # 自动续签
-cat > /etc/cron.d/certbot-renew <<CRON
-0 3 * * * root certbot renew --quiet && systemctl reload nginx
-CRON
-systemctl enable cron
-systemctl restart cron
+echo "0 3 * * * root certbot renew --quiet && systemctl reload nginx" > /etc/cron.d/certbot-renew
+systemctl restart cron || systemctl restart crond
 
 echo "🎉 部署完成！Trojan-gRPC 已启用"
 echo "👉 域名: $DOMAIN"
 echo "👉 配置文件: $CONF_FILE"
 echo "👉 伪装页面: $WWW_DIR/index.html"
-echo "🔄 证书每天凌晨 3 点自动检查续签"
+echo "🔄 证书每天凌晨 3 点自动续签"
