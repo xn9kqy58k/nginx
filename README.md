@@ -1,4 +1,10 @@
-## 一键部署命令
+## tcp一键部署
+
+```bash
+bash <(curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/ngtcp.sh)
+
+```
+## grpc一键部署
 
 ```bash
 bash <(curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/ng.sh)
