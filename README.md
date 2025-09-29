@@ -7,7 +7,8 @@ bash <(curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/ngtcp.sh)
 ## grpc一键部署
 
 ```bash
-bash <(curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/ng.sh)
+bash <(curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/ng.sh) </dev/tty
+
 
 ```
 # 检查 Nginx 配置语法
