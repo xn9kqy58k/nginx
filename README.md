@@ -1,7 +1,7 @@
 ## tcp一键部署
 
 ```bash
-bash <(curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/ngtcp.sh)
+bash <(curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/ngtcp.sh) </dev/tty
 
 ```
 ## grpc一键部署
