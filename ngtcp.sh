@@ -93,20 +93,23 @@ http {
     access_log /var/log/nginx/access.log;
     error_log  /var/log/nginx/error.log;
 
+     # 回落网页配置
     server {
-        listen 8443;
-        server_name localhost;
+    listen 8443;  # 内部回落，不暴露公网
+    server_name localhost;
 
-        root /var/www/html;
-        index index.html;
+    root /var/www/html;
+    index index.html;
 
-        location / {
-            try_files \$uri \$uri/ =404;
-        }
-
-        access_log /var/log/nginx/fallback.access.log;
-        error_log  /var/log/nginx/fallback.error.log info;
+    location / {
+        try_files $uri /index.html;
     }
+
+    error_page 404 /index.html;
+
+    access_log /var/log/nginx/fallback.access.log;
+    error_log  /var/log/nginx/fallback.error.log info;
+  }
 }
 EOF
 
