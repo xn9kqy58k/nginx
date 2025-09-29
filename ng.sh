@@ -28,7 +28,7 @@ echo "🔑 正在申请 SSL 证书 (Standalone 模式)..."
 certbot certonly --standalone -d "$DOMAIN" --email "$EMAIL" --agree-tos --no-eff-email --non-interactive
 if [ $? -ne 0 ]; then
     echo "❌ 证书申请失败，请检查域名解析和 80 端口"
-    exit 1
+    exit 
 fi
 
 # 创建伪装页
@@ -81,7 +81,7 @@ http {
     # gRPC 后端
     upstream grpc_backend {
         server 127.0.0.1:1024;
-        keepalive 100;
+        keepalive 512;
     }
 
     # HTTP → HTTPS 重定向
@@ -104,8 +104,9 @@ http {
         ssl_protocols TLSv1.2 TLSv1.3;
         ssl_ciphers 'ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-AES128-GCM-SHA256:!aNULL:!MD5:!3DES';
         ssl_prefer_server_ciphers on;
-        ssl_session_cache shared:SSL:10m;
+        ssl_session_cache shared:SSL:20m;
         ssl_session_timeout 1d;
+        
 
         # gRPC 代理
         location /grpc {
