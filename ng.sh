@@ -38,58 +38,116 @@ curl -fsSL https://raw.githubusercontent.com/xn9kqy58k/nginx/main/index.html -o 
 chown -R www-data:www-data "$WWW_DIR"
 chmod -R 755 "$WWW_DIR"
 
+
 # 写 Nginx 配置
 CONF_FILE="/etc/nginx/conf.d/trojan-grpc.conf"
 cat > "$CONF_FILE" <<EOF
-upstream grpc_backend {
-    server 127.0.0.1:1024;
-    keepalive 100;
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+error_log /var/log/nginx/error.log warn;
+
+events {
+    worker_connections 1024;
+    use epoll;
+    multi_accept on;
 }
 
-server {
-    listen 80;
-    listen [::]:80;
-    server_name $DOMAIN;
-    return 301 https://\$host\$request_uri;
-}
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    access_log /var/log/nginx/access.log combined;
 
-server {
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
-    server_name $DOMAIN;
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 3600s;
+    server_tokens off;
 
-    ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+    # gzip 压缩
+    gzip on;
+    gzip_disable "msie6";
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_buffers 16 8k;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
 
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers 'ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-AES128-GCM-SHA256:!aNULL:!MD5:!3DES';
-    ssl_prefer_server_ciphers on;
-    ssl_session_cache shared:SSL:10m;
-    ssl_session_timeout 1d;
+    # 安全头
+    add_header X-Frame-Options DENY;
+    add_header X-Content-Type-Options nosniff;
+    add_header Referrer-Policy no-referrer-when-downgrade;
 
-    location /grpc {
-        grpc_pass grpc://grpc_backend;
-        grpc_set_header Host \$host;
-        grpc_set_header X-Real-IP \$remote_addr;
-        grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        grpc_set_header X-Forwarded-Proto https;
-        grpc_connect_timeout 120s;
-        grpc_send_timeout 3600s;
-        grpc_read_timeout 3600s;
+    # gRPC 后端
+    upstream grpc_backend {
+        server 127.0.0.1:1024;
+        keepalive 100;
     }
 
-    location / {
-        root /var/www/html;
-        index index.html;
-        try_files \$uri /index.html;
-        default_type text/html;
-        add_header Cache-Control "no-cache";
+    # HTTP → HTTPS 重定向
+    server {
+        listen 80;
+        listen [::]:80;
+        server_name $DOMAIN;
+        return 301 https://\$host\$request_uri;
+    }
+
+    # 主 HTTPS 服务器
+    server {
+        listen 443 ssl http2;
+        listen [::]:443 ssl http2;
+        server_name $DOMAIN;
+
+        ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers 'ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-AES128-GCM-SHA256:!aNULL:!MD5:!3DES';
+        ssl_prefer_server_ciphers on;
+        ssl_session_cache shared:SSL:10m;
+        ssl_session_timeout 1d;
+
+        # gRPC 代理
+        location /grpc {
+            grpc_pass grpc://grpc_backend;
+            grpc_set_header Host \$host;
+            grpc_set_header X-Real-IP \$remote_addr;
+            grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            grpc_set_header X-Forwarded-Proto https;
+            grpc_connect_timeout 120s;
+            grpc_send_timeout 3600s;
+            grpc_read_timeout 3600s;
+        }
+
+        # SPA 伪装站点
+        location / {
+            root /var/www/html;
+            index index.html;
+            try_files \$uri /index.html;
+            default_type text/html;
+            add_header Cache-Control "no-cache";
+        }
+    }
+
+    # 防止 IP 直连
+    server {
+        listen 80 default_server;
+        listen [::]:80 default_server;
+        listen 443 ssl default_server;
+        listen [::]:443 ssl default_server;
+        server_name _;
+
+        ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+
+        return 444;
     }
 }
 EOF
 
 # 去掉不可见字符
 sed -i 's/[\r]//g' "$CONF_FILE"
+
 
 # 启动 Nginx
 nginx -t && systemctl restart nginx && systemctl enable nginx
