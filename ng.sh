@@ -106,6 +106,8 @@ http {
         ssl_prefer_server_ciphers on;
         ssl_session_cache shared:SSL:20m;
         ssl_session_timeout 1d;
+         http2_max_concurrent_streams 256;  # 增加并发流
+        client_body_buffer_size 2m;        # 减少 flow control 阻塞
         
 
         # gRPC 代理
@@ -115,9 +117,9 @@ http {
             grpc_set_header X-Real-IP \$remote_addr;
             grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
             grpc_set_header X-Forwarded-Proto https;
-            grpc_connect_timeout 120s;
-            grpc_send_timeout 3600s;
-            grpc_read_timeout 3600s;
+            grpc_connect_timeout 300s;
+            grpc_send_timeout 10000s;
+            grpc_read_timeout 10000s;
         }
 
         # SPA 伪装站点
