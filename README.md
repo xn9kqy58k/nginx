@@ -4,8 +4,7 @@
 bash <(curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/ngtcp.sh) </dev/tty
 ```
 ```bash
-"EnableFallback": true,
-      "FallBackConfigs": [
+ "FallBackConfigs": [
         {
           "Dest": "127.0.0.1:8443",
           "ProxyProtocolVer": 0
@@ -14,6 +13,7 @@ bash <(curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/ngtcp.sh) </dev/tt
     }
   ]
 }
+}}
 
 ```
 ## grpc一键部署
