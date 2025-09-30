@@ -1,5 +1,6 @@
 #!/bin/bash
 # 更安全、更高性能、伪装更强的 Nginx + Certbot + V2bX 自动部署脚本
+# 自动检测并安装支持 stream 的 Nginx 版本
 set -euo pipefail
 IFS=$'\n\t'
 
@@ -9,7 +10,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 # -----------------------------
-# 用户输入
+# 用户输入（保持简单交互）
 # -----------------------------
 read -p "申请证书域名 (example.com) : " DOMAIN
 read -p "证书提醒邮箱: " EMAIL
@@ -17,22 +18,48 @@ read -p "请输入对接面板网址 (http(s)://panel.example) : " API_DOMAIN
 read -p "请输入对接面板密钥 : " APIKEY
 read -p "请输入节点 NodeID (数字) : " NODEID
 
+# 随机化回落端口
 FALLBACK_PORT=$(shuf -i 20000-60000 -n 1)
 
 # -----------------------------
 # 基本依赖安装
 # -----------------------------
-echo "📦 清理无效源并更新 apt..."
-sed -i '/bullseye-backports/d' /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null || true
-
+echo "📦 更新 apt 并安装必要包..."
 export DEBIAN_FRONTEND=noninteractive
 apt update -y
-apt install -y --no-install-recommends curl wget gnupg2 lsb-release software-properties-common nginx certbot python3-certbot-nginx openssl systemd
+apt install -y --no-install-recommends curl wget gnupg2 lsb-release software-properties-common apt-transport-https ca-certificates
 
-# 备份 nginx.conf
+# -----------------------------
+# 检查 Nginx 是否支持 stream
+# -----------------------------
+install_official_nginx() {
+  echo "⚠️ 检测到当前 Nginx 不支持 stream，切换到官方版本..."
+  apt remove -y nginx nginx-common nginx-core || true
+
+  codename=$(lsb_release -cs)
+  echo "deb http://nginx.org/packages/debian $codename nginx" > /etc/apt/sources.list.d/nginx.list
+  curl -fsSL https://nginx.org/keys/nginx_signing.key | apt-key add -
+
+  apt update -y
+  apt install -y nginx
+}
+
+if ! nginx -V 2>&1 | grep -q -- '--with-stream'; then
+  install_official_nginx
+else
+  echo "✅ 当前 Nginx 已支持 stream"
+fi
+
+# 继续安装 Certbot
+apt install -y certbot python3-certbot-nginx openssl systemd
+
+# -----------------------------
+# 备份现有 nginx 配置
+# -----------------------------
 if [ -f /etc/nginx/nginx.conf ]; then
   mkdir -p /root/nginx-backups
   cp -a /etc/nginx/nginx.conf "/root/nginx-backups/nginx.conf.$(date +%s)"
+  echo "📦 已备份 /etc/nginx/nginx.conf 到 /root/nginx-backups/"
 fi
 
 systemctl stop nginx || true
@@ -40,9 +67,9 @@ systemctl stop nginx || true
 # -----------------------------
 # 申请证书
 # -----------------------------
-echo "🔑 申请 TLS 证书..."
+echo "🔑 申请 TLS 证书（standalone 模式）..."
 if ! certbot certonly --standalone -d "$DOMAIN" --email "$EMAIL" --agree-tos --no-eff-email --non-interactive; then
-  echo "❌ 证书申请失败，请检查域名解析和防火墙"
+  echo "❌ 证书申请失败，请检查域名解析与防火墙。"
   exit 1
 fi
 
@@ -52,7 +79,7 @@ fi
 WWW_DIR="/var/www/$DOMAIN"
 mkdir -p "$WWW_DIR"
 if curl -fsSL https://raw.githubusercontent.com/xn9kqy58k/nginx/main/index.html -o "$WWW_DIR/index.html"; then
-  echo "✅ 已下载伪装页到 $WWW_DIR/index.html"
+  echo "✅ 已从 GitHub 下载伪装页到 $WWW_DIR/index.html"
 else
   echo "❌ 下载伪装页失败"
   exit 1
@@ -61,11 +88,11 @@ chown -R www-data:www-data "$WWW_DIR"
 chmod -R 755 "$WWW_DIR"
 
 # -----------------------------
-# Nginx 配置
+# 生成 nginx.conf
 # -----------------------------
 NGINX_CONF="/etc/nginx/nginx.conf"
 cat > "$NGINX_CONF" <<'NGINX'
-user www-data;
+user  www-data;
 worker_processes auto;
 pid /run/nginx.pid;
 
@@ -73,16 +100,18 @@ events {
     worker_connections 4096;
     multi_accept on;
 }
+
 worker_rlimit_nofile 65536;
 
 http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
+
     sendfile        on;
     tcp_nopush      on;
     tcp_nodelay     on;
     keepalive_timeout 65;
-    types_hash_max_size 2048;
+
     server_tokens off;
 
     gzip on;
@@ -91,11 +120,11 @@ http {
     gzip_proxied any;
     gzip_types text/plain text/css application/javascript application/json image/svg+xml;
 
-    access_log /var/log/nginx/access.log main buffer=16k;
-
+    # 本地回落网页
     server {
         listen 127.0.0.1:%FALLBACK_PORT%;
         server_name localhost;
+
         root %WWW_DIR%;
         index index.html;
 
@@ -104,9 +133,6 @@ http {
             allow 127.0.0.1;
             deny all;
         }
-
-        access_log /var/log/nginx/fallback.access.log;
-        error_log /var/log/nginx/fallback.error.log info;
     }
 }
 
@@ -139,20 +165,19 @@ NGINX
 sed -i "s|%FALLBACK_PORT%|$FALLBACK_PORT|g" "$NGINX_CONF"
 sed -i "s|%WWW_DIR%|$WWW_DIR|g" "$NGINX_CONF"
 sed -i "s|%DOMAIN%|$DOMAIN|g" "$NGINX_CONF"
-sed -i 's/\r//' "$NGINX_CONF"
 
 nginx -t
 systemctl restart nginx
 systemctl enable nginx
 
 # -----------------------------
-# 安装 V2bX
+# 安装 V2bX（手动选择 n）
 # -----------------------------
-echo "📦 安装 V2bX ..."
+echo "📦 安装 V2bX..."
 wget -N https://raw.githubusercontent.com/wyx2685/V2bX-script/master/install.sh -O /tmp/v2bx-install.sh
-chmod +x /tmp/v2bx-install.sh
-yes n | bash /tmp/v2bx-install.sh
-systemctl stop v2bx || true
+bash /tmp/v2bx-install.sh <<EOF
+n
+EOF
 
 # -----------------------------
 # 写入 V2bX 配置
@@ -185,30 +210,10 @@ cat > /etc/V2bX/config.json <<EOF
       "Timeout": 30,
       "ListenIP": "127.0.0.1",
       "SendIP": "0.0.0.0",
-      "DeviceOnlineMinTraffic": 200,
-      "MinReportTraffic": 0,
       "EnableProxyProtocol": true,
-      "EnableUot": true,
-      "EnableTFO": true,
-      "DNSType": "UseIPv4",
-      "CertConfig": {
-        "CertMode": "none",
-        "RejectUnknownSni": false,
-        "CertDomain": "$DOMAIN",
-        "CertFile": "/etc/letsencrypt/live/$DOMAIN/fullchain.pem",
-        "KeyFile": "/etc/letsencrypt/live/$DOMAIN/privkey.pem",
-        "Email": "$EMAIL",
-        "Provider": "cloudflare",
-        "DNSEnv": {
-          "EnvName": "env1"
-        }
-      },
       "EnableFallback": true,
       "FallBackConfigs": [
         {
-          "SNI": "",
-          "Alpn": "",
-          "Path": "",
           "Dest": "127.0.0.1:$FALLBACK_PORT",
           "ProxyProtocolVer": 0
         }
@@ -218,54 +223,6 @@ cat > /etc/V2bX/config.json <<EOF
 }
 EOF
 
-chown -R root:root /etc/V2bX
-chmod -R 600 /etc/V2bX/config.json || true
+chmod 600 /etc/V2bX/config.json
 
-systemctl daemon-reexec
-systemctl enable v2bx
-systemctl restart v2bx
-
-# -----------------------------
-# 自动续签
-# -----------------------------
-cat > /etc/systemd/system/certbot-renew.service <<SERVICE
-[Unit]
-Description=Certbot Renew and reload nginx
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/certbot renew --quiet --post-hook "/bin/systemctl reload nginx"
-SERVICE
-
-cat > /etc/systemd/system/certbot-renew.timer <<TIMER
-[Unit]
-Description=Run certbot renew daily
-
-[Timer]
-OnCalendar=*-*-* 03:00:00
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-TIMER
-
-systemctl daemon-reload
-systemctl enable --now certbot-renew.timer
-
-# -----------------------------
-# 总结
-# -----------------------------
-cat <<SUMMARY
-🎉 部署完成！
-👉 域名: $DOMAIN
-👉 面板地址: $API_DOMAIN
-👉 节点 ID: $NODEID
-👉 本地回落端口: $FALLBACK_PORT
-👉 伪装页路径: $WWW_DIR/index.html
-👉 nginx 配置: $NGINX_CONF
-👉 V2bX 配置: /etc/V2bX/config.json
-👉 自动续签: systemd timer 每日 03:00
-
-V2bX 已安装并运行： systemctl status v2bx
-Nginx 已配置 TLS 回落和透传： systemctl status nginx
-SUMMARY
+echo "🎉 部署完成，Nginx 已支持 stream，V2bX 配置已生成！"
