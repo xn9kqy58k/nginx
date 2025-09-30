@@ -24,7 +24,10 @@ FALLBACK_PORT=$(shuf -i 20000-60000 -n 1)
 # -----------------------------
 # 基本依赖安装
 # -----------------------------
-echo "📦 更新 apt 并安装必要包..."
+echo "📦 清理无效源并更新 apt..."
+# 删除 bullseye-backports（已下架，避免报错）
+sed -i '/bullseye-backports/d' /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null || true
+
 export DEBIAN_FRONTEND=noninteractive
 apt update -y
 apt install -y --no-install-recommends curl wget gnupg2 lsb-release software-properties-common nginx certbot python3-certbot-nginx openssl systemd
