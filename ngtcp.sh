@@ -12,11 +12,11 @@ fi
 # -----------------------------
 # 用户输入（保持简单交互）
 # -----------------------------
-read -p "申请证书域名 (example.com) : " DOMAIN
+read -p "申请证书域名  : " DOMAIN
 read -p "证书提醒邮箱: " EMAIL
-read -p "请输入对接面板网址 (http(s)://panel.example) : " API_DOMAIN
+read -p "请输入对接面板网址 (https://) : " API_DOMAIN
 read -p "请输入对接面板密钥 : " APIKEY
-read -p "请输入节点 NodeID (数字) : " NODEID
+read -p "请输入节点 NodeID: " NODEID
 
 # 随机化回落端口
 FALLBACK_PORT=$(shuf -i 20000-60000 -n 1)
