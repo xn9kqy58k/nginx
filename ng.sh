@@ -42,7 +42,7 @@ chmod -R 755 "$WWW_DIR"
 
 
 # 写 Nginx 配置
-CONF_FILE="/etc/nginx/conf.d/trojan-grpc.conf"
+CONF_FILE="/etc/nginx/nginx.conf"
 cat > "$CONF_FILE" <<'EOF'
 user www-data;
 worker_processes auto;
