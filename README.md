@@ -4,7 +4,26 @@
 bash <(curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/ngtcp.sh) </dev/tty
 ```
 ```bash
- "EnvName": "env1"
+            "NodeType": "trojan",
+            "Timeout": 30,
+            "ListenIP": "127.0.0.1",
+            "SendIP": "0.0.0.0",
+            "DeviceOnlineMinTraffic": 200,
+            "MinReportTraffic": 0,
+            "EnableProxyProtocol": true,
+            "EnableUot": true,
+            "EnableTFO": true,
+            "DNSType": "UseIPv4",
+            "CertConfig": {
+                "CertMode": "none",
+                "RejectUnknownSni": false,
+                "CertDomain": "example.com",
+                "CertFile": "/etc/V2bX/fullchain.cer",
+                "KeyFile": "/etc/V2bX/cert.key",
+                "Email": "v2bx@github.com",
+                "Provider": "cloudflare",
+                "DNSEnv": {
+                    "EnvName": "env1"
         }
       },
       "EnableFallback": true,
@@ -17,6 +36,8 @@ bash <(curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/ngtcp.sh) </dev/tt
     }
   ]
 }
+
+
 
 
 ```
