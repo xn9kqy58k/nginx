@@ -5,7 +5,7 @@ bash <(curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/key.sh) </dev/tty
 
 
 ```
-## grpc一键部署
+## grpc一键
 
 ```bash
 bash <(curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/ng.sh) </dev/tty
