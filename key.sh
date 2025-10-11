@@ -6,49 +6,40 @@ CERT_FILE="$CERT_DIR/fullchain.cer"
 KEY_FILE="$CERT_DIR/cert.key"
 
 # --- 检查 acme.sh 是否安装，并自动安装 ---
+# 首先检查 acme.sh 是否已安装
 if ! command -v acme.sh &> /dev/null
 then
     echo "--- 未检测到 acme.sh，正在自动安装... ---"
+    
     # 执行安装命令
     curl https://get.acme.sh | sh
-
+    
     # 检查安装是否成功
     if [ $? -ne 0 ]; then
-        echo "--- 错误：acme.sh 自动安装失败！请检查网络或权限。---"
+        echo "--- 错误：acme.sh 自动安装失败！请检查网络或权限。脚本终止。---"
         exit 1
     fi
-
-    # 尝试加载安装后的配置（通常会写入到 ~/.bashrc 或 ~/.profile）
-    # 注意：在非交互式脚本中，source 可能只对当前子 shell 有效，
-    # 但由于 acme.sh 安装后通常会创建一个 ~/.acme.sh 目录，我们可以直接调用其内部脚本。
-    PROFILE_FILE="$HOME/.bashrc"
-    [ -f "$HOME/.zshrc" ] && PROFILE_FILE="$HOME/.zshrc"
-    [ -f "$HOME/.profile" ] && PROFILE_FILE="$HOME/.profile"
     
-    # 尝试 source 配置，让 acme.sh 命令在当前 shell 生效
-    if [ -f "$PROFILE_FILE" ]; then
-        # 尝试加载配置
-        source "$PROFILE_FILE" &> /dev/null
-    fi
+    # 尝试加载安装后的配置（仅作尝试，主要依赖后面的绝对路径调用）
+    source ~/.bashrc &> /dev/null
+    source ~/.profile &> /dev/null
     
-    # 再次检查 acme.sh 是否可用
-    if ! command -v acme.sh &> /dev/null; then
-        echo "--- 警告：acme.sh 命令路径未自动加载。将尝试使用硬编码路径。---"
-    fi
+    echo "--- acme.sh 安装完成。将继续证书申请流程。---"
 fi
 
-# 确定 acme.sh 的 home 目录（通常为 /root/.acme.sh）
+# 确定 acme.sh 的 home 目录（通常为 $HOME/.acme.sh，对于 root 就是 /root/.acme.sh）
 ACME_HOME="$HOME/.acme.sh"
-export ACME_HOME
 
-# 确定 acme.sh 可执行文件的路径
-ACME_BIN=$(command -v acme.sh || echo "$ACME_HOME/acme.sh")
+# 确定 acme.sh 可执行文件的实际路径
+# 优先使用 PATH 中的命令；如果找不到，则回退到默认安装路径
+ACME_BIN=$(command -v acme.sh 2>/dev/null || echo "$ACME_HOME/acme.sh")
+
 if [ ! -f "$ACME_BIN" ]; then
-    echo "--- 致命错误：acme.sh 未找到，无法继续。请手动检查安装。---"
+    echo "--- 致命错误：acme.sh 可执行文件未找到 ($ACME_BIN)。请手动检查安装。脚本终止。---"
     exit 1
 fi
-echo "--- acme.sh 路径: $ACME_BIN ---"
 
+echo "--- acme.sh 路径已确定: $ACME_BIN ---"
 
 # --- 接收用户输入 ---
 echo "--- V2B-X 证书申请脚本 (Cloudflare DNS 模式) ---"
@@ -70,7 +61,7 @@ export CF_Key="$CF_KEY"
 # --- 申请证书 (使用 Let's Encrypt DNS 验证) ---
 echo "--- 正在使用 Cloudflare DNS 验证模式申请证书 ---"
 
-# 尝试颁发证书 (移除 --force，避免浪费额度，让 acme.sh 自动判断是否续期)
+# 使用 ACME_BIN 绝对路径执行命令，移除 --force 以便续期
 "$ACME_BIN" --issue \
   -d "$DOMAIN_NAME" \
   --dns dns_cf \
@@ -79,9 +70,7 @@ echo "--- 正在使用 Cloudflare DNS 验证模式申请证书 ---"
 if [ $? -ne 0 ]; then
     echo "--- 错误：证书颁发失败！ ---"
     echo "请检查您的域名、Cloudflare 密钥和 DNS 设置是否正确。"
-    # 清理环境变量
-    unset CF_Email
-    unset CF_Key
+    unset CF_Email; unset CF_Key
     exit 1
 fi
 
@@ -100,9 +89,7 @@ mkdir -p "$CERT_DIR"
 
 if [ $? -ne 0 ]; then
     echo "--- 警告：证书安装过程可能出现问题 ---"
-    # 清理环境变量
-    unset CF_Email
-    unset CF_Key
+    unset CF_Email; unset CF_Key
     exit 1
 fi
 
