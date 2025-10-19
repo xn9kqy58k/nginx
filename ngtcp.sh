@@ -39,11 +39,11 @@ if [ ! -f "$ACME_BIN" ]; then
 fi
 echo "✅ acme.sh 路径: $ACME_BIN"
 
-# --- 环境变量 ---
+# --- 设置环境变量 ---
 export CF_Email="$CF_EMAIL"
 export CF_Key="$CF_KEY"
 
-# --- 使用 Cloudflare DNS 验证申请正式证书 ---
+# --- 申请证书 ---
 echo "📜 正在申请证书（Let's Encrypt 正式环境）..."
 "$ACME_BIN" --issue -d "$DOMAIN" --dns dns_cf --server letsencrypt --log
 
@@ -55,9 +55,9 @@ mkdir -p "$CERT_DIR"
 
 unset CF_Email; unset CF_Key
 
-# --- 安装 Nginx 官方版本 ---
+# --- 安装官方 Nginx（带 stream 模块） ---
 if ! nginx -V 2>&1 | grep -q -- '--with-stream'; then
-  echo "⚙️ 当前 Nginx 不支持 stream，切换官方源安装..."
+  echo "⚙️ 当前 Nginx 不支持 stream，安装官方版本..."
   codename=$(lsb_release -cs)
   echo "deb http://nginx.org/packages/debian $codename nginx" > /etc/apt/sources.list.d/nginx.list
   curl -fsSL https://nginx.org/keys/nginx_signing.key | apt-key add -
@@ -65,15 +65,16 @@ if ! nginx -V 2>&1 | grep -q -- '--with-stream'; then
   apt install -y nginx
 fi
 
-# --- 伪装页 ---
+# --- 创建伪装页 ---
 WWW_DIR="/var/www/$DOMAIN"
 mkdir -p "$WWW_DIR"
 if ! curl -fsSL https://raw.githubusercontent.com/xn9kqy58k/nginx/main/index.html -o "$WWW_DIR/index.html"; then
   echo "<h1>Hello from internal fallback on $DOMAIN</h1>" > "$WWW_DIR/index.html"
 fi
 chown -R www-data:www-data "$WWW_DIR"
+chmod -R 755 "$WWW_DIR"
 
-# --- Nginx 配置 ---
+# --- 生成 Nginx 配置 ---
 NGINX_CONF="/etc/nginx/nginx.conf"
 cat > "$NGINX_CONF" <<NGINX
 user  www-data;
@@ -135,7 +136,7 @@ stream {
 }
 NGINX
 
-# --- 启动 nginx ---
+# --- 启动 Nginx ---
 nginx -t
 systemctl enable nginx
 systemctl restart nginx
@@ -166,7 +167,7 @@ TIMER
 systemctl daemon-reload
 systemctl enable --now acme-renew.timer
 
-# --- 总结 ---
+# --- 完成提示 ---
 echo "✅ 部署完成！"
 echo "域名: $DOMAIN"
 echo "证书路径: $CERT_FILE"
@@ -176,3 +177,4 @@ echo "Nginx 配置: $NGINX_CONF"
 echo "自动续签: 每天凌晨 3 点"
 echo "Trojan 服务请监听 127.0.0.1:${TROJAN_PORT}"
 echo "本地回落端口: ${FALLBACK_PORT}"
+
