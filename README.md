@@ -1,7 +1,7 @@
 ## key一键
 
 ```bash
-bash <(curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/key.sh) </dev/tty
+bash <(curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/key.sh)
 
 
 ```
