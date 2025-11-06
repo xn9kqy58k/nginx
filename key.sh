@@ -1,8 +1,6 @@
 #!/bin/bash
 # =========================================================
-#  V2node SSL 自动申请 + 自动续签 + Telegram 通知脚本
-#  支持直接管道执行: bash <(curl -fsSL ...)
-#  默认使用 Cloudflare Global API Key
+#  V2node SSL 自动申请 + 自动续签脚本（Cloudflare Global API Key）
 # =========================================================
 
 set -euo pipefail
@@ -16,7 +14,7 @@ SERVICE_NAME="v2node"
 CA_SERVER="--server letsencrypt"
 CRON_SCHEDULE="0 3 1 * *"  # 每月1号凌晨3点
 
-unset CF_Email CF_Key TG_BOT_TOKEN TG_CHAT_ID
+unset CF_Email CF_Key
 
 echo "========================================================="
 echo "🔐 V2node SSL 自动申请与自动续签脚本"
@@ -54,29 +52,7 @@ export CF_Email="$CF_EMAIL"
 export CF_Key="$CF_KEY"
 
 # -----------------------------------------------------
-# 步骤 3: 可选 Telegram 配置
-# -----------------------------------------------------
-echo
-echo "📢 可选功能：配置 Telegram 通知（可跳过）"
-read -rp "请输入 Telegram Bot Token（留空跳过）: " TG_BOT_TOKEN
-if [ -n "$TG_BOT_TOKEN" ]; then
-    read -rp "请输入 Telegram Chat ID: " TG_CHAT_ID
-else
-    TG_CHAT_ID=""
-fi
-
-send_tg() {
-    local MESSAGE="$1"
-    if [[ -n "$TG_BOT_TOKEN" && -n "$TG_CHAT_ID" ]]; then
-        curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
-            -d chat_id="$TG_CHAT_ID" \
-            -d parse_mode="Markdown" \
-            -d text="$MESSAGE" >/dev/null || true
-    fi
-}
-
-# -----------------------------------------------------
-# 步骤 4: 申请 SSL 证书
+# 步骤 3: 申请 SSL 证书
 # -----------------------------------------------------
 echo "--- 🌐 正在申请 SSL 证书（Cloudflare DNS 验证） ---"
 
@@ -85,13 +61,12 @@ if ! "$ACME_BIN" --home "$ACME_HOME" --issue \
     --dns dns_cf \
     $CA_SERVER \
     --log; then
-    echo "❌ 证书申请失败"
-    send_tg "❌ *V2node SSL* 证书申请失败：域名 *${DOMAIN_NAME}*。"
+    echo "❌ 证书申请失败，请检查 Cloudflare Key 或域名解析"
     exit 1
 fi
 
 # -----------------------------------------------------
-# 步骤 5: 安装证书 + 重启服务
+# 步骤 4: 安装证书 + 重启服务
 # -----------------------------------------------------
 mkdir -p "$CERT_DIR"
 RELOAD_CMD="systemctl restart ${SERVICE_NAME} || echo '⚠️ 未能自动重启 ${SERVICE_NAME}'"
@@ -103,15 +78,11 @@ RELOAD_CMD="systemctl restart ${SERVICE_NAME} || echo '⚠️ 未能自动重启
   --reloadcmd "$RELOAD_CMD"
 
 # -----------------------------------------------------
-# 步骤 6: 配置每月自动续签
+# 步骤 5: 配置每月自动续签
 # -----------------------------------------------------
 (crontab -l 2>/dev/null | grep -v "$ACME_BIN" || true) | crontab -
 
-CRON_LINE="$CRON_SCHEDULE CF_Email=$CF_EMAIL CF_Key=$CF_KEY TG_BOT_TOKEN=$TG_BOT_TOKEN TG_CHAT_ID=$TG_CHAT_ID $ACME_BIN --cron --home $ACME_HOME > /tmp/v2node-renew.log 2>&1 && systemctl restart $SERVICE_NAME"
-
-if [[ -n "$TG_BOT_TOKEN" && -n "$TG_CHAT_ID" ]]; then
-  CRON_LINE="$CRON_LINE && curl -s -X POST https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage -d chat_id=${TG_CHAT_ID} -d text='✅ V2node SSL 自动续签成功：${DOMAIN_NAME}' >/dev/null"
-fi
+CRON_LINE="$CRON_SCHEDULE CF_Email=$CF_EMAIL CF_Key=$CF_KEY $ACME_BIN --cron --home $ACME_HOME > /tmp/v2node-renew.log 2>&1 && systemctl restart $SERVICE_NAME"
 
 (
   crontab -l 2>/dev/null
@@ -119,15 +90,10 @@ fi
 ) | crontab -
 
 echo "--- ✅ 已添加 crontab 任务：$CRON_SCHEDULE ---"
-[[ -n "$TG_BOT_TOKEN" ]] && echo "--- Telegram 通知已启用 ---"
+echo "--- 自动续签后将自动重启服务：$SERVICE_NAME ---"
 
 # -----------------------------------------------------
-# 步骤 7: 运行成功后立即发送 Telegram 通知
-# -----------------------------------------------------
-send_tg "✅ *V2node SSL 证书申请成功！*\n域名：*${DOMAIN_NAME}*\n服务：*${SERVICE_NAME}*\n证书路径：\`${CERT_FILE}\`\n自动续签已启用。"
-
-# -----------------------------------------------------
-# 步骤 8: 完成
+# 步骤 6: 完成
 # -----------------------------------------------------
 unset CF_Email CF_Key
 
@@ -137,7 +103,6 @@ echo "证书路径: $CERT_FILE"
 echo "私钥路径: $KEY_FILE"
 echo "系统已配置自动续签（每月检测一次）"
 echo "续签后将自动重启服务：$SERVICE_NAME"
-[[ -n "$TG_BOT_TOKEN" ]] && echo "Telegram 通知已启用（Chat ID: $TG_CHAT_ID）"
 echo "========================================================="
 exit 0
 
