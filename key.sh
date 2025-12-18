@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "========================================================="
-echo "🔐 V2node SSL 自动申请与自动续签脚本（超稳兼容版）"
+echo "🔐 V2bX SSL 自动申请与自动续签脚本（超稳兼容版）"
 echo "========================================================="
 
 # -----------------------------
@@ -11,11 +11,13 @@ echo "========================================================="
 ACME_HOME="/root/.acme.sh"
 ACME_BIN="$ACME_HOME/acme.sh"
 
-CERT_DIR="/etc/v2node"
+# 已将路径修改为 V2bX
+CERT_DIR="/etc/V2bX"
 CERT_FILE="$CERT_DIR/fullchain.cer"
 KEY_FILE="$CERT_DIR/cert.key"
 
-SERVICE_NAME="v2node"
+# 已将服务名修改为 V2bX
+SERVICE_NAME="V2bX"
 CA_SERVER="--server letsencrypt"
 CRON_SCHEDULE="0 3 1 * *"
 
@@ -52,7 +54,7 @@ install_cron() {
 install_cron
 
 # ---------------------------------------------------------
-# Step 2：安装 acme.sh（强制确保存在）
+# Step 2：安装 acme.sh
 # ---------------------------------------------------------
 if [ ! -x "$ACME_BIN" ]; then
     echo "--- ⬇️ acme.sh 未检测到，正在安装 ---"
@@ -99,15 +101,15 @@ fi
 # ---------------------------------------------------------
 echo "--- 🌐 正在申请 SSL 证书（Cloudflare DNS 验证） ---"
 
+# 注册账户以确保 Let's Encrypt 成功率
+"$ACME_BIN" --register-account -m "$CF_EMAIL" $CA_SERVER --home "$ACME_HOME" || true
+
 if ! "$ACME_BIN" --home "$ACME_HOME" \
     --issue -d "$DOMAIN_NAME" \
     --dns dns_cf \
     $CA_SERVER --log; then
 
-    echo "❌ 证书申请失败，可能原因："
-    echo "  - CF API Key 错误"
-    echo "  - 域名不属于当前 Cloudflare 账号"
-    echo "  - DNS TXT 未传播"
+    echo "❌ 证书申请失败，请检查 CF API Key 或域名归属。"
     exit 1
 fi
 
@@ -124,7 +126,7 @@ else
     RELOAD_CMD="echo '⚠️ 当前系统不支持自动重启服务，请手动处理！'"
 fi
 
-echo "--- 💿 正在安装证书 ---"
+echo "--- 💿 正在安装证书到 $CERT_DIR ---"
 
 "$ACME_BIN" --home "$ACME_HOME" --install-cert \
     -d "$DOMAIN_NAME" \
@@ -141,7 +143,7 @@ echo "--- ⏱️ 正在配置 crontab 自动续签 ---"
 
 (
     crontab -l 2>/dev/null
-    echo "$CRON_SCHEDULE $ACME_BIN --cron --home $ACME_HOME > /tmp/v2node-renew.log 2>&1"
+    echo "$CRON_SCHEDULE \"$ACME_BIN\" --cron --home \"$ACME_HOME\" > /tmp/V2bX-renew.log 2>&1"
 ) | crontab -
 
 # ---------------------------------------------------------
@@ -153,7 +155,7 @@ echo "========================================================="
 echo "🎉 证书申请成功！"
 echo "证书路径: $CERT_FILE"
 echo "私钥路径: $KEY_FILE"
-echo "自动续签任务已设置（每月执行一次）"
+echo "自动续签任务已设置（每月 1 号执行一次）"
 echo "证书续签后将执行：$RELOAD_CMD"
 echo "========================================================="
 exit 0
