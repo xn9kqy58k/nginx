@@ -1,3 +1,10 @@
+## ping0一键
+
+```bash
+bash <(curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/ping0.sh)
+
+
+```
 ## key一键
 
 ```bash
