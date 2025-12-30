@@ -1,90 +1,138 @@
 #!/bin/bash
+set -euo pipefail
 
-# ====================================================
-# Nginx 一键反向代理魔改脚本 (ping0.cc 专用)
-# ====================================================
+echo "======================================================"
+echo "🚀 Ping0 原生 IP 终极反代 + DNS SSL 自动化脚本"
+echo "======================================================"
 
-# 配置变量 - 你可以在这里修改你的域名
-MY_DOMAIN="ping0.cc"
-UPSTREAM_URL="http://ping0.ipyard.com/"
+# ========= 基础变量 =========
+ACME_HOME="/root/.acme.sh"
+ACME_BIN="$ACME_HOME/acme.sh"
+
+NGINX_SSL="/etc/nginx/ssl"
+CERT_FILE="$NGINX_SSL/fullchain.pem"
+KEY_FILE="$NGINX_SSL/privkey.pem"
+
 UPSTREAM_HOST="ping0.ipyard.com"
+UPSTREAM_URL="https://ping0.ipyard.com"
 
-# 1. 更新系统并安装 Nginx
-echo "正在安装 Nginx..."
-sudo apt update && sudo apt install -y nginx curl
+# ========= 用户输入 =========
+read -rp "请输入你的域名 (如 ping0.cc): " DOMAIN
+read -rp "请输入 Cloudflare 邮箱: " CF_EMAIL
+read -rsp "请输入 Cloudflare Global API Key: " CF_KEY
+echo
 
-# 2. 确认 Nginx 是否支持 sub_filter 模块
-if ! nginx -V 2>&1 | grep -q "with-http_sub_module"; then
-    echo "错误: 当前 Nginx 版本不支持 sub_filter 模块，请手动编译安装。"
+if [[ -z "$DOMAIN" || -z "$CF_EMAIL" || -z "$CF_KEY" ]]; then
+    echo "❌ 参数不能为空"
     exit 1
 fi
 
-# 3. 编写 Nginx 配置文件
-echo "正在配置 Nginx 站点..."
-cat <<EOF | sudo tee /etc/nginx/sites-available/ping0_proxy
+export CF_Email="$CF_EMAIL"
+export CF_Key="$CF_KEY"
+
+# ========= 安装依赖 =========
+echo "⚙️ 安装依赖..."
+apt update -y
+apt install -y nginx curl cron ca-certificates
+
+# ========= 初始 Nginx HTTP =========
+cat >/etc/nginx/conf.d/ping0.conf <<EOF
 server {
     listen 80;
-    server_name $MY_DOMAIN;
-
-    # 禁用上游压缩，确保 sub_filter 能够处理 HTML
-    proxy_set_header Accept-Encoding "";
+    server_name $DOMAIN;
 
     location / {
         proxy_pass $UPSTREAM_URL;
         proxy_set_header Host $UPSTREAM_HOST;
-        
-        # 传递真实 IP
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header REMOTE-HOST \$remote_addr;
-
-        # WebSocket 支持
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-
-        # --- 内容替换规则 ---
-        # 1. 替换文字内容
-        sub_filter '广播 IP' '原生 IP';
-        
-        # 2. 替换颜色 (从橙色变为绿色)
-        sub_filter 'rgb(255, 170, 0)' 'limegreen';
-        
-        # 3. 替换域名，防止点击链接跳回原站
-        sub_filter '$UPSTREAM_HOST' '$MY_DOMAIN';
-        
-        sub_filter_once off;
-
-        # 隐藏后端特征
-        proxy_hide_header X-Powered-By;
-        proxy_hide_header Server;
-    }
-
-    # 静态资源优化
-    location ~* \.(gif|png|jpg|css|js|woff|woff2)$ {
-        proxy_pass $UPSTREAM_URL;
-        proxy_set_header Host $UPSTREAM_HOST;
-        expires 7d;
-        add_header Cache-Control "public";
+        proxy_set_header Accept-Encoding "";
     }
 }
 EOF
 
-# 4. 启用配置并测试
-echo "激活配置文件..."
-sudo ln -sf /etc/nginx/sites-available/ping0_proxy /etc/nginx/sites-enabled/
-sudo rm -f /etc/nginx/sites-enabled/default
+rm -f /etc/nginx/sites-enabled/default
+nginx -t && systemctl restart nginx
 
-echo "检查 Nginx 语法..."
-if sudo nginx -t; then
-    echo "语法检查通过，正在重启 Nginx..."
-    sudo systemctl restart nginx
-    echo "------------------------------------------------"
-    echo "恭喜！配置已完成。"
-    echo "您的站点: http://$MY_DOMAIN"
-    echo "请确保您的域名已解析到此服务器 IP。"
-    echo "------------------------------------------------"
-else
-    echo "Nginx 语法检查失败，请检查配置。"
-    exit 1
+# ========= 安装 acme.sh =========
+if [ ! -x "$ACME_BIN" ]; then
+    echo "⬇️ 安装 acme.sh..."
+    curl -sS https://get.acme.sh | sh
 fi
+
+# ========= DNS 申请证书 =========
+echo "🔐 通过 Cloudflare DNS 申请证书..."
+mkdir -p "$NGINX_SSL"
+
+"$ACME_BIN" --register-account -m "$CF_EMAIL" || true
+
+"$ACME_BIN" --issue \
+    --dns dns_cf \
+    -d "$DOMAIN" \
+    --server letsencrypt
+
+"$ACME_BIN" --install-cert -d "$DOMAIN" \
+    --key-file "$KEY_FILE" \
+    --fullchain-file "$CERT_FILE" \
+    --reloadcmd "systemctl reload nginx"
+
+# ========= 终极 HTTPS 配置 =========
+cat >/etc/nginx/conf.d/ping0.conf <<EOF
+server {
+    listen 80;
+    server_name $DOMAIN;
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name $DOMAIN;
+
+    ssl_certificate     $CERT_FILE;
+    ssl_certificate_key $KEY_FILE;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    server_tokens off;
+
+    location / {
+        proxy_pass $UPSTREAM_URL;
+        proxy_set_header Host $UPSTREAM_HOST;
+
+        # ===== 核心：IP 纯净 =====
+        proxy_set_header X-Real-IP "";
+        proxy_set_header X-Forwarded-For "";
+        proxy_set_header X-Forwarded-Proto "";
+        proxy_set_header REMOTE-HOST "";
+
+        proxy_http_version 1.1;
+
+        # 禁用压缩（sub_filter 生效关键）
+        proxy_set_header Accept-Encoding "";
+
+        # ===== 内容层彻底伪装 =====
+        sub_filter_once off;
+        sub_filter '<span class="label orange" style="background: rgb(255, 170, 0);">广播 IP</span>' \
+                   '<span class="label orange" style="background: limegreen;">原生 IP</span>';
+        sub_filter '广播 IP' '原生 IP';
+        sub_filter '$UPSTREAM_HOST' '$DOMAIN';
+
+        # ===== 去指纹 =====
+        proxy_hide_header Server;
+        proxy_hide_header X-Powered-By;
+        proxy_hide_header Via;
+        proxy_hide_header X-Cache;
+    }
+}
+EOF
+
+nginx -t && systemctl restart nginx
+
+# ========= 自动续签 =========
+(crontab -l 2>/dev/null | grep -v acme.sh || true; \
+echo "0 3 * * * $ACME_BIN --cron --home $ACME_HOME > /dev/null 2>&1") | crontab -
+
+echo "======================================================"
+echo "✅ 部署完成"
+echo "🌐 https://$DOMAIN"
+echo "📌 ping0 显示：100% 原生 IP"
+echo "🔁 DNS SSL 自动续签已启用"
+echo "======================================================"
