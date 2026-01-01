@@ -1,130 +1,79 @@
 #!/bin/bash
-set -euo pipefail
+set -e
 
-echo "========================================================="
-echo "🔐 TLS-only 诱饵证书 + WS 原样转发（XrayR）最终部署脚本"
-echo "========================================================="
+# ===============================
+# VLESS WS CDN Nginx 入口脚本
+# ===============================
 
-# -----------------------------
-# 基础路径
-# -----------------------------
-ACME_HOME="/root/.acme.sh"
-ACME_BIN="$ACME_HOME/acme.sh"
-
-CERT_BASE="/etc/V2bX/tls-only"
-NGINX_CONF_DIR="/etc/nginx/conf.d"
-
-mkdir -p "$CERT_BASE" "$NGINX_CONF_DIR"
-
-# -----------------------------
-# 输入参数
-# -----------------------------
-read -rp "TLS-only 诱饵域名（仅用于握手）: " TLS_DOMAIN
-read -rp "VLESS WS 域名（由 XrayR 管证书）: " VLESS_DOMAIN
-read -rp "WS 路径（如 /api/stream）: " WS_PATH
-read -rp "XrayR 监听端口（如 10000）: " XRAYR_PORT
-read -rp "Cloudflare 邮箱: " CF_EMAIL
-read -rsp "Cloudflare Global API Key: " CF_KEY
-echo
-
-if [[ -z "$TLS_DOMAIN" || -z "$VLESS_DOMAIN" || -z "$WS_PATH" || -z "$XRAYR_PORT" ]]; then
-    echo "❌ 参数不完整，退出"
+if [ "$(id -u)" -ne 0 ]; then
+    echo "必须 root 运行"
     exit 1
 fi
 
-export CF_Email="$CF_EMAIL"
-export CF_Key="$CF_KEY"
+read -rp "VLESS SNI 域名（如 tw01.api6666666.top）: " VLESS_DOMAIN
+read -rp "XrayR 实际监听端口（如 10000）: " XRAYR_PORT
 
-# -----------------------------
-# 安装 acme.sh
-# -----------------------------
-if [ ! -x "$ACME_BIN" ]; then
-    echo "--- ⬇️ 安装 acme.sh ---"
-    curl -sS https://get.acme.sh | sh
+if [ -z "$VLESS_DOMAIN" ] || [ -z "$XRAYR_PORT" ]; then
+    echo "参数不能为空"
+    exit 1
 fi
 
-# -----------------------------
-# 申请 TLS-only 证书（唯一一个）
-# -----------------------------
-echo "--- 🌐 申请 TLS-only 诱饵证书 ---"
+# 安装 nginx
+if command -v apt >/dev/null 2>&1; then
+    apt update -y
+    apt install -y nginx
+elif command -v yum >/dev/null 2>&1; then
+    yum install -y nginx
+else
+    echo "不支持的系统"
+    exit 1
+fi
 
-"$ACME_BIN" --register-account -m "$CF_EMAIL" --server letsencrypt || true
+systemctl stop nginx || true
 
-"$ACME_BIN" --issue \
-    -d "$TLS_DOMAIN" \
-    --dns dns_cf \
-    --server letsencrypt
+# 写 nginx.conf
+cat > /etc/nginx/nginx.conf <<EOF
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+error_log /var/log/nginx/error.log warn;
 
-"$ACME_BIN" --install-cert \
-    -d "$TLS_DOMAIN" \
-    --key-file       "$CERT_BASE/key.pem" \
-    --fullchain-file "$CERT_BASE/fullchain.pem"
-
-# -----------------------------
-# 生成 Nginx 配置
-# -----------------------------
-echo "--- 🧩 生成 Nginx 配置 ---"
-
-# TLS-only 探测吸收
-cat > "$NGINX_CONF_DIR/00-tls-only.conf" <<EOF
-server {
-    listen 443 ssl;
-    server_name $TLS_DOMAIN;
-
-    ssl_certificate     $CERT_BASE/fullchain.pem;
-    ssl_certificate_key $CERT_BASE/key.pem;
-
-    return 444;
-}
-EOF
-
-# WS 原样转发（TLS 在 XrayR 终止）
-cat > "$NGINX_CONF_DIR/10-vless-ws.conf" <<EOF
-map \$http_upgrade \$connection_upgrade {
-    default upgrade;
-    ''      close;
+events {
+    worker_connections 1024;
 }
 
-server {
-    listen 443;
-    server_name $VLESS_DOMAIN;
-
-    location $WS_PATH {
-        proxy_pass http://127.0.0.1:$XRAYR_PORT;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection \$connection_upgrade;
-        proxy_set_header Host \$host;
-        proxy_buffering off;
+stream {
+    map \$ssl_preread_server_name \$backend {
+        $VLESS_DOMAIN   vless_backend;
+        default         reject_backend;
     }
 
-    location / {
-        return 444;
+    upstream vless_backend {
+        server 127.0.0.1:$XRAYR_PORT;
+    }
+
+    upstream reject_backend {
+        server 127.0.0.1:1;
+    }
+
+    server {
+        listen 443 reuseport;
+        ssl_preread on;
+        proxy_pass \$backend;
+        proxy_timeout 8s;
+        proxy_connect_timeout 2s;
     }
 }
 EOF
 
-# -----------------------------
-# 检查并重载 Nginx
-# -----------------------------
-echo "--- 🔍 检查 Nginx 配置 ---"
 nginx -t
+systemctl restart nginx
+systemctl enable nginx
 
-echo "--- 🔄 重载 Nginx ---"
-systemctl reload nginx
-
-unset CF_Email CF_Key
-
-echo "========================================================="
-echo "✅ 部署完成（正式上线状态）"
 echo
-echo "🔹 TLS-only 诱饵域名：$TLS_DOMAIN"
-echo "   行为：TLS 成功 → 立即断开"
-echo
-echo "🔹 VLESS WS 域名：$VLESS_DOMAIN"
-echo "   路径：$WS_PATH"
-echo "   转发：127.0.0.1:$XRAYR_PORT"
-echo "   证书：由 XrayR 自行管理"
-echo
-echo "👉 Nginx 仅负责吸收与转发，不参与代理证书"
-echo "========================================================="
+echo "======================================"
+echo "完成"
+echo "VLESS SNI: $VLESS_DOMAIN"
+echo "转发端口: 127.0.0.1:$XRAYR_PORT"
+echo "非 VLESS 流量：直接断"
+echo "======================================"
