@@ -10,7 +10,7 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-read -rp "VLESS SNI 域名（如 tw01.api6666666.top）: " VLESS_DOMAIN
+read -rp "VLESS SNI 域名: " VLESS_DOMAIN
 read -rp "XrayR 实际监听端口（如 10000）: " XRAYR_PORT
 
 if [ -z "$VLESS_DOMAIN" ] || [ -z "$XRAYR_PORT" ]; then
