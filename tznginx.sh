@@ -10,19 +10,19 @@ CYAN='\033[0;36m'
 PLAIN='\033[0m'
 
 # --- 0. 基础工具预装 ---
-if ! command -v curl &> /dev/null; then
-    echo -e "${YELLOW}检测到缺少 curl，正在安装基础工具...${PLAIN}"
-    apt-get update && apt-get install -y curl wget sudo
-fi
+# 自动补齐 curl 以便下载脚本，补齐 unzip 以便哪吒面板解压
+echo -e "${YELLOW}正在检查并补齐基础工具 (curl, unzip...)${PLAIN}"
+apt-get update
+apt-get install -y curl wget sudo unzip xz-utils
 
 echo -e "${CYAN}======================================================${PLAIN}"
 echo -e "${CYAN}       哪吒监控 (V1) 环境全自动化部署脚本             ${PLAIN}"
 echo -e "${CYAN}======================================================${PLAIN}"
 
-# --- 1. 系统更新 (解决 SSH 配置弹窗问题) ---
-echo -e "\n${YELLOW}[1/6] 正在静默更新系统包并安装基础工具...${PLAIN}"
+# --- 1. 系统更新 (解决 SSH 配置弹窗与无人值守问题) ---
+echo -e "\n${YELLOW}[1/6] 正在静默更新系统包...${PLAIN}"
 export DEBIAN_FRONTEND=noninteractive
-apt-get update
+# 使用 -o Dpkg::Options::="--force-confold" 解决你遇到的 sshd_config 弹窗
 apt-get -o Dpkg::Options::="--force-confold" upgrade -y
 apt-get install -y vim git socat tar net-tools ufw nginx
 
@@ -68,7 +68,7 @@ mkdir -p /etc/nginx/certs/$DOMAIN
     --key-file       /etc/nginx/certs/$DOMAIN/key.pem  \
     --fullchain-file /etc/nginx/certs/$DOMAIN/fullchain.pem
 
-# --- 5. Nginx 反代配置 (官方 V1 标准) ---
+# --- 5. Nginx 反代配置 (遵循 V1 官方文档) ---
 echo -e "\n${YELLOW}[5/6] 正在配置 Nginx 反向代理...${PLAIN}"
 NGINX_CONF="/etc/nginx/conf.d/nezha.conf"
 
@@ -92,7 +92,7 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     underscores_in_headers on;
 
-    # gRPC 通信 (Agent 上线核心)
+    # gRPC 通信
     location ^~ /proto.NezhaService/ {
         grpc_set_header Host \$host;
         grpc_set_header nz-realip \$remote_addr;
@@ -102,7 +102,7 @@ server {
         grpc_pass grpc://dashboard_backend;
     }
 
-    # WebSocket (实时数据/终端)
+    # WebSocket
     location ~* ^/api/v1/ws/(server|terminal|file)(.*)$ {
         proxy_set_header Host \$host;
         proxy_set_header nz-realip \$remote_addr;
@@ -143,20 +143,16 @@ echo -e "${GREEN}            ✅ 系统环境与 Nginx 反代配置完成！    
 echo -e "${GREEN}======================================================${PLAIN}"
 echo -e "${BLUE}1. Docker 状态:${PLAIN}  $(systemctl is-active docker)"
 echo -e "${BLUE}2. 访问域名:${PLAIN}    ${CYAN}https://$DOMAIN${PLAIN}"
-echo -e "${BLUE}3. 面板后端端口:${PLAIN} ${PURPLE}$NZ_PORT${PLAIN} ${RED}(已防火墙屏蔽，仅限本地访问)${PLAIN}"
-echo -e "${BLUE}4. 证书存放路径:${PLAIN} /etc/nginx/certs/$DOMAIN/"
+echo -e "${BLUE}3. 面板后端端口:${PLAIN} ${PURPLE}$NZ_PORT${PLAIN} ${RED}(已屏蔽，禁止外部直连)${PLAIN}"
+echo -e "${BLUE}4. 已装依赖:${PLAIN}    ${GREEN}curl, unzip, xz-utils, nginx, ufw${PLAIN}"
 echo -e "${GREEN}------------------------------------------------------${PLAIN}"
 echo -e "${YELLOW}👉 下一步操作指令 (安装面板):${PLAIN}"
 echo -e "${WHITE}curl -L https://raw.githubusercontent.com/nezhahq/scripts/refs/heads/main/install.sh -o nezha.sh && chmod +x nezha.sh && sudo ./nezha.sh${PLAIN}"
 echo -e ""
 echo -e "${YELLOW}👉 面板安装关键注意点:${PLAIN}"
-echo -e "   - 当提示输入 ${CYAN}Dashboard 端口${PLAIN} 时，务必输入: ${PURPLE}$NZ_PORT${PLAIN}"
-echo -e "   - 回调地址填: ${CYAN}https://$DOMAIN/oauth2/callback${PLAIN}"
+echo -e "   - 提示 ${CYAN}Dashboard 端口${PLAIN} 时，务必输入: ${PURPLE}$NZ_PORT${PLAIN}"
+echo -e "   - 回调地址: ${CYAN}https://$DOMAIN/oauth2/callback${PLAIN}"
 echo -e ""
 echo -e "${YELLOW}👉 Agent (落地鸡) 连接指南:${PLAIN}"
-echo -e "   - Dashboard 地址填: ${CYAN}$DOMAIN${PLAIN}"
-echo -e "   - 通信端口填: ${GREEN}443${PLAIN}"
-echo -e "   - 务必勾选: ${GREEN}开启 SSL/TLS${PLAIN}"
+echo -e "   - 地址填: ${CYAN}$DOMAIN${PLAIN} | 端口填: ${GREEN}443${PLAIN} | 开启 SSL${PLAIN}"
 echo -e "${GREEN}======================================================${PLAIN}"
-
-# 提示用户脚本已结束，可以进行下一步
