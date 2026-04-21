@@ -6,27 +6,32 @@ GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 PLAIN='\033[0m'
 
-echo -e "${GREEN}=== 哪吒监控 (V1) 环境全自动化部署脚本 ===${PLAIN}"
+# --- 0. 基础工具预装 ---
+# 解决你遇到的 curl command not found 问题
+if ! command -v curl &> /dev/null; then
+    echo -e "${YELLOW}检测到缺少 curl，正在安装基础工具...${PLAIN}"
+    apt-get update && apt-get install -y curl wget sudo
+fi
 
-# --- 1. 系统更新与基础工具安装 ---
-echo -e "\n${YELLOW}[1/5] 正在更新系统包并安装基础工具...${PLAIN}"
-apt update && apt upgrade -y
-apt install -y curl wget sudo vim git socat tar net-tools ufw
+echo -e "${GREEN}=== 哪吒监控 (V1) 全环境部署助手 ===${PLAIN}"
 
-# --- 2. 安装 Docker 运行环境 ---
-echo -e "\n${YELLOW}[2/5] 正在安装 Docker & Docker Compose...${PLAIN}"
+# --- 1. 系统更新 (解决 SSH 配置弹窗问题) ---
+echo -e "\n${YELLOW}[1/5] 正在静默更新系统包...${PLAIN}"
+# 使用 -o Dpkg::Options::="--force-confold" 自动保留旧配置，防止 SSH 弹窗中断
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get -o Dpkg::Options::="--force-confold" upgrade -y
+apt-get install -y vim git socat tar net-tools ufw nginx
+
+# --- 2. Docker 环境安装 ---
+echo -e "\n${YELLOW}[2/5] 正在安装 Docker & Compose...${PLAIN}"
 if ! command -v docker &> /dev/null; then
     curl -fsSL https://get.docker.com | bash -s docker
     systemctl enable docker
     systemctl start docker
-    echo -e "${GREEN}Docker 安装成功！${PLAIN}"
-else
-    echo -e "${BLUE}Docker 已存在，跳过安装。${PLAIN}"
 fi
-
-# 安装 Docker Compose V2
 if ! docker compose version &> /dev/null; then
-    apt install -y docker-compose-plugin
+    apt-get install -y docker-compose-plugin
 fi
 
 # --- 3. 参数采集 ---
@@ -41,23 +46,27 @@ if [[ -z "$DOMAIN" || -z "$EMAIL" ]]; then
     exit 1
 fi
 
-# --- 4. 申请 SSL 证书 (Acme.sh) ---
+# --- 4. SSL 证书申请 (Acme.sh) ---
 echo -e "\n${YELLOW}[4/5] 正在通过 Acme.sh 申请证书...${PLAIN}"
+# 强制清理可能存在的旧安装
+rm -rf ~/.acme.sh
 curl https://get.acme.sh | sh -s email=$EMAIL
-source ~/.bashrc
-# 如果是第一次安装，需要重新载入路径
-/root/.acme.sh/acme.sh --upgrade --auto-upgrade
-/root/.acme.sh/acme.sh --issue -d $DOMAIN --standalone
+# 重新加载环境路径以确保 acme.sh 命令可用
+export PATH="$HOME/.acme.sh:$PATH"
+~/.acme.sh/acme.sh --upgrade --auto-upgrade
+~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+
+# 停止 nginx 以便 standalone 模式占用 80 端口申请证书
+systemctl stop nginx
+~/.acme.sh/acme.sh --issue -d $DOMAIN --standalone --force
 
 mkdir -p /etc/nginx/certs/$DOMAIN
-/root/.acme.sh/acme.sh --install-cert -d $DOMAIN \
+~/.acme.sh/acme.sh --install-cert -d $DOMAIN \
     --key-file       /etc/nginx/certs/$DOMAIN/key.pem  \
     --fullchain-file /etc/nginx/certs/$DOMAIN/fullchain.pem
 
-# --- 5. Nginx 反代配置 ---
-echo -e "\n${YELLOW}[5/5] 正在配置 Nginx 反向代理...${PLAIN}"
-apt install -y nginx
-
+# --- 5. Nginx 反代配置 (基于官方 V1 模板) ---
+echo -e "\n${YELLOW}[5/5] 正在生成 Nginx 配置文件...${PLAIN}"
 NGINX_CONF="/etc/nginx/conf.d/nezha.conf"
 
 cat > $NGINX_CONF <<EOF
@@ -80,7 +89,7 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     underscores_in_headers on;
 
-    # gRPC 相关 (哪吒 V1 核心通信)
+    # gRPC 通信 (Agent 上线核心)
     location ^~ /proto.NezhaService/ {
         grpc_set_header Host \$host;
         grpc_set_header nz-realip \$remote_addr;
@@ -90,7 +99,7 @@ server {
         grpc_pass grpc://dashboard_backend;
     }
 
-    # WebSocket 相关
+    # WebSocket (实时数据/终端)
     location ~* ^/api/v1/ws/(server|terminal|file)(.*)$ {
         proxy_set_header Host \$host;
         proxy_set_header nz-realip \$remote_addr;
@@ -99,7 +108,7 @@ server {
         proxy_pass http://dashboard_backend;
     }
 
-    # 网页主体
+    # Web 界面
     location / {
         proxy_set_header Host \$host;
         proxy_set_header nz-realip \$remote_addr;
@@ -115,23 +124,25 @@ server {
 }
 EOF
 
-# 检查 Nginx 语法并重启
+# 检查语法并重启 Nginx
 nginx -t && systemctl restart nginx
 
-# --- 安全加固：屏蔽后端端口直连 ---
-echo -e "\n${YELLOW}[安全加固] 正在屏蔽外部对 $NZ_PORT 端口的访问...${PLAIN}"
+# --- 安全加固：屏蔽 IP 直连 ---
+echo -e "\n${YELLOW}[安全加固] 正在通过 UFW 屏蔽后端端口外部访问...${PLAIN}"
+ufw allow 22/tcp
 ufw allow 80/tcp
 ufw allow 443/tcp
-ufw allow 22/tcp
-# 拒绝外部访问面板后端端口
 ufw deny $NZ_PORT/tcp
-ufw --force enable
+echo "y" | ufw enable
 
-# --- 结尾提示 ---
+# --- 6. 面板安装提示 ---
 echo -e "\n${GREEN}===============================================${PLAIN}"
-echo -e "${GREEN}系统环境与 Nginx 反代配置完成！${PLAIN}"
-echo -e "1. Docker 状态: $(systemctl is-active docker)"
-echo -e "2. 域名: ${YELLOW}https://$DOMAIN${PLAIN}"
-echo -e "3. 面板后端端口: ${YELLOW}$NZ_PORT (已防火墙屏蔽，仅限本地反代访问)${PLAIN}"
-echo -e "4. 现在你可以运行哪吒面板的 Docker 安装命令了。"
-echo -e "${GREEN}===============================================${PLAIN}"
+echo -e "1. 系统更新: ${GREEN}完成 (静默模式)${PLAIN}"
+echo -e "2. Docker 环境: ${GREEN}已就绪${PLAIN}"
+echo -e "3. Nginx 反代: ${GREEN}已启动 (HTTPS)${PLAIN}"
+echo -e "4. 安全状态: ${YELLOW}已屏蔽端口 $NZ_PORT，禁止外部直连${PLAIN}"
+echo -e "-----------------------------------------------"
+echo -e "接下来请运行哪吒官方安装脚本，并设置端口为: ${CYAN}$NZ_PORT${PLAIN}"
+echo -e "安装完成后，请通过以下域名访问:"
+echo -e "${GREEN}https://$DOMAIN${PLAIN}"
+echo -e "==============================================="
