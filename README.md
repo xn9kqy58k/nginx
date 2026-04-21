@@ -1,6 +1,13 @@
 ## 转发一键
 
 ```bash
+bash <(curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/tznginx.sh)
+
+
+```
+## 转发一键
+
+```bash
 bash <(curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/relay.sh)
 
 
