@@ -10,23 +10,21 @@ CYAN='\033[0;36m'
 PLAIN='\033[0m'
 
 # --- 0. 基础工具预装 ---
-# 自动补齐 curl 以便下载脚本，补齐 unzip 以便哪吒面板解压
 echo -e "${YELLOW}正在检查并补齐基础工具 (curl, unzip...)${PLAIN}"
 apt-get update
 apt-get install -y curl wget sudo unzip xz-utils
 
 echo -e "${CYAN}======================================================${PLAIN}"
-echo -e "${CYAN}       哪吒监控 (V1) 环境全自动化部署脚本             ${PLAIN}"
+echo -e "${CYAN}        哪吒监控 (V1) CDN 优化版全自动化脚本           ${PLAIN}"
 echo -e "${CYAN}======================================================${PLAIN}"
 
-# --- 1. 系统更新 (解决 SSH 配置弹窗与无人值守问题) ---
+# --- 1. 系统更新 ---
 echo -e "\n${YELLOW}[1/6] 正在静默更新系统包...${PLAIN}"
 export DEBIAN_FRONTEND=noninteractive
-# 使用 -o Dpkg::Options::="--force-confold" 解决你遇到的 sshd_config 弹窗
 apt-get -o Dpkg::Options::="--force-confold" upgrade -y
 apt-get install -y vim git socat tar net-tools ufw nginx
 
-# --- 2. 安装 Docker 运行环境 ---
+# --- 2. 安装 Docker 环境 ---
 echo -e "\n${YELLOW}[2/6] 正在安装 Docker & Docker Compose...${PLAIN}"
 if ! command -v docker &> /dev/null; then
     curl -fsSL https://get.docker.com | bash -s docker
@@ -42,9 +40,9 @@ fi
 
 # --- 3. 参数采集 ---
 echo -e "\n${YELLOW}[3/6] 配置信息采集${PLAIN}"
-read -p "请输入要绑定的域名 (例: dashboard.example.com): " DOMAIN
-read -p "请输入面板内部运行端口 (默认 8008): " NZ_PORT
-NZ_PORT=${NZ_PORT:-8008}
+read -p "请输入要绑定的域名 (例: tz.example.com): " DOMAIN
+read -p "请输入面板内部运行端口 (默认 8868): " NZ_PORT
+NZ_PORT=${NZ_PORT:-8868}
 read -p "请输入你的邮箱 (用于 SSL 证书申请): " EMAIL
 
 if [[ -z "$DOMAIN" || -z "$EMAIL" ]]; then
@@ -68,8 +66,8 @@ mkdir -p /etc/nginx/certs/$DOMAIN
     --key-file       /etc/nginx/certs/$DOMAIN/key.pem  \
     --fullchain-file /etc/nginx/certs/$DOMAIN/fullchain.pem
 
-# --- 5. Nginx 反代配置 (遵循 V1 官方文档) ---
-echo -e "\n${YELLOW}[5/6] 正在配置 Nginx 反向代理...${PLAIN}"
+# --- 5. Nginx 反代配置 (CDN & WebSocket 优化版) ---
+echo -e "\n${YELLOW}[5/6] 正在配置 Nginx 反向代理 (含超时优化)...${PLAIN}"
 NGINX_CONF="/etc/nginx/conf.d/nezha.conf"
 
 cat > $NGINX_CONF <<EOF
@@ -92,7 +90,7 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     underscores_in_headers on;
 
-    # gRPC 通信
+    # gRPC 通信 (探针与面板通信)
     location ^~ /proto.NezhaService/ {
         grpc_set_header Host \$host;
         grpc_set_header nz-realip \$remote_addr;
@@ -102,12 +100,21 @@ server {
         grpc_pass grpc://dashboard_backend;
     }
 
-    # WebSocket
+    # WebSocket 优化 (解决 CDN 环境下网页频繁刷新问题)
     location ~* ^/api/v1/ws/(server|terminal|file)(.*)$ {
         proxy_set_header Host \$host;
         proxy_set_header nz-realip \$remote_addr;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
+        
+        # 延长超时时间，适配 CDN 心跳
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        
+        # 禁用缓存，确保实时推送
+        proxy_buffering off;
+        proxy_cache_bypass \$http_upgrade;
+        
         proxy_pass http://dashboard_backend;
     }
 
@@ -116,6 +123,7 @@ server {
         proxy_set_header Host \$host;
         proxy_set_header nz-realip \$remote_addr;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 120s;
         proxy_pass http://dashboard_backend;
     }
 }
@@ -129,30 +137,22 @@ EOF
 
 nginx -t && systemctl restart nginx
 
-# --- 6. 安全加固：屏蔽后端端口直连 ---
-echo -e "\n${YELLOW}[安全加固] 正在通过 UFW 屏蔽外部对 $NZ_PORT 端口的访问...${PLAIN}"
+# --- 6. 安全加固 ---
+echo -e "\n${YELLOW}[6/6] 正在配置防火墙...${PLAIN}"
 ufw allow 22/tcp
 ufw allow 80/tcp
 ufw allow 443/tcp
 ufw deny $NZ_PORT/tcp
 echo "y" | ufw enable
 
-# --- 7. 最终信息输出 (备忘录) ---
+# --- 7. 信息输出 ---
 echo -e "\n${GREEN}======================================================${PLAIN}"
-echo -e "${GREEN}            ✅ 系统环境与 Nginx 反代配置完成！          ${PLAIN}"
+echo -e "${GREEN}           ✅ 哪吒面板环境修复版部署完成！             ${PLAIN}"
 echo -e "${GREEN}======================================================${PLAIN}"
-echo -e "${BLUE}1. Docker 状态:${PLAIN}  $(systemctl is-active docker)"
-echo -e "${BLUE}2. 访问域名:${PLAIN}    ${CYAN}https://$DOMAIN${PLAIN}"
-echo -e "${BLUE}3. 面板后端端口:${PLAIN} ${PURPLE}$NZ_PORT${PLAIN} ${RED}(已屏蔽，禁止外部直连)${PLAIN}"
-echo -e "${BLUE}4. 已装依赖:${PLAIN}    ${GREEN}curl, unzip, xz-utils, nginx, ufw${PLAIN}"
-echo -e "${GREEN}------------------------------------------------------${PLAIN}"
-echo -e "${YELLOW}👉 下一步操作指令 (安装面板):${PLAIN}"
-echo -e "${WHITE}curl -L https://raw.githubusercontent.com/nezhahq/scripts/refs/heads/main/install.sh -o nezha.sh && chmod +x nezha.sh && sudo ./nezha.sh${PLAIN}"
-echo -e ""
-echo -e "${YELLOW}👉 面板安装关键注意点:${PLAIN}"
-echo -e "   - 提示 ${CYAN}Dashboard 端口${PLAIN} 时，务必输入: ${PURPLE}$NZ_PORT${PLAIN}"
-echo -e "   - 回调地址: ${CYAN}https://$DOMAIN/oauth2/callback${PLAIN}"
-echo -e ""
-echo -e "${YELLOW}👉 Agent (落地鸡) 连接指南:${PLAIN}"
-echo -e "   - 地址填: ${CYAN}$DOMAIN${PLAIN} | 端口填: ${GREEN}443${PLAIN} | 开启 SSL${PLAIN}"
+echo -e "${BLUE}访问域名:${PLAIN} ${CYAN}https://$DOMAIN${PLAIN}"
+echo -e "${BLUE}CDN 状态:${PLAIN} ${YELLOW}已适配 (请确保 CF 后台 SSL 为 Full Strict)${PLAIN}"
+echo -e "${BLUE}刷新修复:${PLAIN} ${GREEN}WebSocket 超时已延长至 3600s${PLAIN}"
+echo -e "------------------------------------------------------"
+echo -e "${YELLOW}👉 如果尚未安装面板，请执行：${PLAIN}"
+echo -e "curl -L https://raw.githubusercontent.com/nezhahq/scripts/refs/heads/main/install.sh -o nezha.sh && chmod +x nezha.sh && sudo ./nezha.sh"
 echo -e "${GREEN}======================================================${PLAIN}"
