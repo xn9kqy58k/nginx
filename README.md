@@ -1,8 +1,8 @@
 
-## 转发一键
+## xhttp一键
 
 ```bash
-bash <(curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/relay.sh)
+bash <(curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/xhttp.sh)
 
 
 ```
