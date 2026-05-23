@@ -29,7 +29,7 @@ read -rp "② Cloudflare 邮箱: " CF_EMAIL
 read -rsp "③ Cloudflare Global API Key: " CF_KEY
 echo
 read -rp "④ 伪装路径（例如 /xhttp，必须以 / 开头）: " PATH_VAL
-read -rp "⑤ V2BX 本地监听端口（Nginx 回源用，推荐 1024-60000 内未占用端口）: " BACKEND_PORT
+read -rp "⑤ V2BX 本地监听端口（推荐 1024-60000 内未占用端口）: " BACKEND_PORT
 echo ""
 echo -e "${YELLOW}── 面板对接信息 ──${NC}"
 read -rp "⑥ 面板 API 地址（例如 https://panel.example.com）: " PANEL_URL
@@ -59,7 +59,7 @@ info "端口检查通过"
 section "安装系统依赖"
 export DEBIAN_FRONTEND=noninteractive
 apt update -y
-apt install -y nginx curl socat cron ufw
+apt install -y nginx curl socat cron unzip
 info "依赖安装完成"
 
 # ── 申请证书 ───────────────────────────────────────────────
@@ -76,19 +76,25 @@ chmod 700 "$CERT_DIR"
 if [ ! -f /root/.acme.sh/acme.sh ]; then
   info "安装 acme.sh..."
   curl -sS https://get.acme.sh | sh
+  source /root/.acme.sh/acme.sh.env 2>/dev/null || true
 fi
 
 ACME="/root/.acme.sh/acme.sh"
 
+# 强制切换到 Let's Encrypt，避免 ZeroSSL 需要注册邮箱的问题
+info "切换 CA 为 Let's Encrypt..."
+"$ACME" --set-default-ca --server letsencrypt
+
 # 检查证书是否已存在且未过期，避免触发频率限制
-if "$ACME" --list | grep -q "$DOMAIN"; then
-  info "证书已存在，跳过申请（如需强制重签请手动运行 acme.sh --issue --force）"
+if "$ACME" --list 2>/dev/null | grep -q "$DOMAIN"; then
+  info "证书已存在，跳过申请"
 else
   info "申请新证书..."
   "$ACME" --issue -d "$DOMAIN" --dns dns_cf --keylength ec-256
 fi
 
 "$ACME" --install-cert -d "$DOMAIN" \
+  --ecc \
   --key-file "$KEY" \
   --fullchain-file "$CERT" \
   --reloadcmd "systemctl reload nginx 2>/dev/null || true"
@@ -99,14 +105,28 @@ info "证书申请完成"
 # ── Nginx 配置 ─────────────────────────────────────────────
 section "配置 Nginx"
 
-# 获取 Cloudflare IP 段用于真实IP还原
-CF_IPV4_RANGES="103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 104.16.0.0/13 104.24.0.0/14
-108.162.192.0/18 131.0.72.0/22 141.101.64.0/18 162.158.0.0/15 172.64.0.0/13
-173.245.48.0/20 188.114.96.0/20 190.93.240.0/20 197.234.240.0/22 198.41.128.0/17"
+# Cloudflare IP 段（用于真实 IP 还原）
+CF_IPV4_RANGES=(
+  "103.21.244.0/22"
+  "103.22.200.0/22"
+  "103.31.4.0/22"
+  "104.16.0.0/13"
+  "104.24.0.0/14"
+  "108.162.192.0/18"
+  "131.0.72.0/22"
+  "141.101.64.0/18"
+  "162.158.0.0/15"
+  "172.64.0.0/13"
+  "173.245.48.0/20"
+  "188.114.96.0/20"
+  "190.93.240.0/20"
+  "197.234.240.0/22"
+  "198.41.128.0/17"
+)
 
 CF_REAL_IP_CONF=""
-for cidr in $CF_IPV4_RANGES; do
-  CF_REAL_IP_CONF+="    set_real_ip_from ${cidr};\n"
+for cidr in "${CF_IPV4_RANGES[@]}"; do
+  CF_REAL_IP_CONF+="        set_real_ip_from ${cidr};\n"
 done
 
 cat > /etc/nginx/nginx.conf <<EOF
@@ -155,7 +175,7 @@ http {
         add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
 
         # ── CF 真实 IP 还原 ───────────────────────────────
-$(printf "%s" "$CF_REAL_IP_CONF")
+$(printf "%b" "$CF_REAL_IP_CONF")
         real_ip_header CF-Connecting-IP;
 
         # ── XHTTP 代理 ────────────────────────────────────
@@ -169,7 +189,7 @@ $(printf "%s" "$CF_REAL_IP_CONF")
             proxy_request_buffering     off;
             chunked_transfer_encoding   on;
 
-            # 长连接超时（XHTTP 需要）
+            # 长连接超时
             proxy_read_timeout  3600s;
             proxy_send_timeout  3600s;
             keepalive_timeout   3600s;
@@ -193,34 +213,33 @@ info "Nginx 配置完成并启动"
 
 # ── 安装 V2BX ──────────────────────────────────────────────
 section "安装 V2BX (XrayR 核心)"
-V2BX_DIR="/etc/v2bx"
-V2BX_CONF="$V2BX_DIR/config.yml"
 
-# 下载安装脚本并静默安装（跳过交互，直接用二进制）
-info "下载 V2BX 最新版本..."
-LATEST=$(curl -s https://api.github.com/repos/wyx2685/V2bX/releases/latest | grep tag_name | cut -d'"' -f4)
+info "获取 V2BX 最新版本..."
+LATEST=$(curl -s https://api.github.com/repos/wyx2685/V2bX/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
+[ -z "$LATEST" ] && error "无法获取 V2BX 版本信息，请检查网络"
+
 ARCH=$(uname -m)
 case $ARCH in
-  x86_64)  ARCH_STR="amd64" ;;
-  aarch64) ARCH_STR="arm64" ;;
+  x86_64)  ARCH_STR="64" ;;
+  aarch64) ARCH_STR="arm64-v8a" ;;
   *)        error "不支持的架构: $ARCH" ;;
 esac
 
 DOWNLOAD_URL="https://github.com/wyx2685/V2bX/releases/download/${LATEST}/V2bX-linux-${ARCH_STR}.zip"
 info "下载: $DOWNLOAD_URL"
 curl -L -o /tmp/v2bx.zip "$DOWNLOAD_URL"
+
 mkdir -p /usr/local/v2bx
-apt install -y unzip
 unzip -o /tmp/v2bx.zip -d /usr/local/v2bx
 chmod +x /usr/local/v2bx/V2bX
 ln -sf /usr/local/v2bx/V2bX /usr/local/bin/v2bx
 rm -f /tmp/v2bx.zip
-info "V2BX 二进制安装完成，版本: $LATEST"
+info "V2BX 安装完成，版本: $LATEST"
 
 # ── 写入 V2BX config.yml ──────────────────────────────────
 section "生成 V2BX 配置"
 
-cat > "$V2BX_CONF" <<EOF
+cat > /etc/v2bx/config.yml <<EOF
 Log:
   Level: warning
   AccessPath:
@@ -240,7 +259,6 @@ Nodes:
     Options:
       ListenIP: 127.0.0.1
       SendIP: 0.0.0.0
-      # TLS 必须为 none，TLS 由 Nginx 处理
       TLSCertConfig:
         CertMode: none
       EnableVless: true
@@ -251,16 +269,13 @@ Nodes:
       Protocol: vless
       Settings:
         network: xhttp
-        path: "$PATH_VAL"
-        host: "$DOMAIN"
-        # 明确指定 stream 模式以配合 CF CDN
         xhttpSettings:
           mode: stream-up
           path: "$PATH_VAL"
           host: "$DOMAIN"
 EOF
 
-chmod 600 "$V2BX_CONF"
+chmod 600 /etc/v2bx/config.yml
 info "V2BX 配置写入完成"
 
 # ── 创建 Systemd 服务 ──────────────────────────────────────
@@ -303,11 +318,11 @@ else
   warn "⚠️  V2BX 未正常运行，请检查: systemctl status v2bx"
 fi
 
-# 检查本地端口是否监听
 if ss -tlnp | grep -q ":$BACKEND_PORT "; then
   info "✅ 后端端口 $BACKEND_PORT 监听正常"
 else
   warn "⚠️  后端端口 $BACKEND_PORT 未监听，V2BX 可能启动失败"
+  warn "    查看日志: journalctl -u v2bx -n 50"
 fi
 
 # ── 输出汇总 ───────────────────────────────────────────────
@@ -320,24 +335,24 @@ cat <<SUMMARY
   面板地址:          $PANEL_URL
   节点 ID:           $NODE_ID
   证书路径:          $CERT
-  V2BX 配置:         $V2BX_CONF
+  V2BX 配置:         /etc/v2bx/config.yml
 
   ── 客户端配置参考 ──────────────────────────────────────
   协议:     VLESS
   地址:     $DOMAIN
   端口:     443
-  传输:     XHTTP  path=$PATH_VAL
+  传输:     XHTTP  path=$PATH_VAL  mode=stream-up
   TLS:      TLS  SNI=$DOMAIN  FingerPrint=chrome
-  加密:     none（TLS 已由 CF+Nginx 处理）
+  加密:     none
 
   ── 常用命令 ────────────────────────────────────────────
   查看 V2BX 日志:  journalctl -u v2bx -f
   重启 V2BX:       systemctl restart v2bx
   重启 Nginx:      systemctl restart nginx
-  重新签发证书:    ~/.acme.sh/acme.sh --renew -d $DOMAIN --force
+  重新签发证书:    ~/.acme.sh/acme.sh --renew -d $DOMAIN --ecc --force
 
   ── 面板节点配置提醒 ────────────────────────────────────
-  节点 TLS 类型:   无 (None) — TLS 由 Nginx 终止
+  节点 TLS 类型:   无 (None)
   传输协议:        XHTTP
   path:            $PATH_VAL
   host:            $DOMAIN
