@@ -1,6 +1,6 @@
-## tcp一键
+## 加固一键
 ```bash
-bash <(curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/deploy-nginx.sh)
+bash <(curl -fsSL https://github.com/xn9kqy58k/nginx/raw/main/harden.sh)
 
 ```
 ## ws一键
