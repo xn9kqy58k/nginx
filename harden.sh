@@ -31,8 +31,8 @@ PROXY_PROCS="v2bx|nginx|xray|hysteria"
 if ss -tlnp 2>/dev/null | grep -qiE "$PROXY_PROCS"; then
     V2BX_PORTS=$(ss -tlnp 2>/dev/null | grep -iE "$PROXY_PROCS" | awk '{print $4}' | awk -F: '{print $NF}' | sort -u | tr '\n' ' ')
 fi
-if ss -ulnp state unconn 2>/dev/null | grep -qiE "$PROXY_PROCS"; then
-    V2BX_UDP_PORTS=$(ss -ulnp state unconn 2>/dev/null | grep -iE "$PROXY_PROCS" | awk '{print $4}' | awk -F: '{print $NF}' | sort -u | tr '\n' ' ')
+if ss -ulnp 2>/dev/null | grep -qiE "$PROXY_PROCS"; then
+    V2BX_UDP_PORTS=$(ss -ulnp 2>/dev/null | grep -iE "$PROXY_PROCS" | awk '{print $4}' | awk -F: '{print $NF}' | awk -F% '{print $1}' | sort -u | awk '$1+0 > 0 && $1+0 < 60000' | tr '\n' ' ')
 fi
 
 if [[ -z "$V2BX_PORTS" && -z "$V2BX_UDP_PORTS" ]]; then
