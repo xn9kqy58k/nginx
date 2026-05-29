@@ -24,8 +24,8 @@ section() { echo -e "\n${CYAN}${BOLD}── $* ──${NC}"; }
 # =============================================================================
 section "检测 V2bX 端口"
 
-V2BX_PORTS=$(ss -tlnp | grep -i v2bx | awk '{print $4}' | awk -F: '{print $NF}' | sort -u)
-V2BX_UDP_PORTS=$(ss -ulnp | grep -i v2bx | awk '{print $4}' | awk -F: '{print $NF}' | sort -u)
+V2BX_PORTS=$(ss -tlnp | grep -i v2bx | awk '{print $4}' | awk -F: '{print $NF}' | sort -u || true)
+V2BX_UDP_PORTS=$(ss -ulnp | grep -i v2bx | awk '{print $4}' | awk -F: '{print $NF}' | sort -u || true)
 
 if [[ -z "$V2BX_PORTS" && -z "$V2BX_UDP_PORTS" ]]; then
     warn "未检测到 V2bX 监听端口，请确认 V2bX 已在运行"
@@ -49,7 +49,7 @@ info "安装完成"
 # =============================================================================
 section "检查残留服务"
 
-if systemctl is-active --quiet nginx 2>/dev/null; then
+if systemctl is-active --quiet nginx 2>/dev/null || false; then
     warn "检测到 nginx 正在运行，正在停止并禁用..."
     systemctl stop nginx
     systemctl disable nginx --quiet
