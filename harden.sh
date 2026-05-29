@@ -29,8 +29,8 @@ V2BX_UDP_PORTS=""
 if ss -tlnp 2>/dev/null | grep -qi "v2bx"; then
     V2BX_PORTS=$(ss -tlnp 2>/dev/null | grep -i "v2bx" | awk '{print $4}' | awk -F: '{print $NF}' | sort -u | tr '\n' ' ')
 fi
-if ss -ulnp 2>/dev/null | grep -qi "v2bx"; then
-    V2BX_UDP_PORTS=$(ss -ulnp 2>/dev/null | grep -i "v2bx" | awk '{print $4}' | awk -F: '{print $NF}' | sort -u | tr '\n' ' ')
+if ss -ulnp state unconn 2>/dev/null | grep -qi "v2bx"; then
+    V2BX_UDP_PORTS=$(ss -ulnp state unconn 2>/dev/null | grep -i "v2bx" | awk '{print $4}' | awk -F: '{print $NF}' | sort -u | tr '\n' ' ')
 fi
 
 if [[ -z "$V2BX_PORTS" && -z "$V2BX_UDP_PORTS" ]]; then
