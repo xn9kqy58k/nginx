@@ -26,19 +26,21 @@ V2BX_PORTS=""
 V2BX_UDP_PORTS=""
 
 # 用 if 包住 grep，避免无匹配时退出
-if ss -tlnp 2>/dev/null | grep -qi "v2bx"; then
-    V2BX_PORTS=$(ss -tlnp 2>/dev/null | grep -i "v2bx" | awk '{print $4}' | awk -F: '{print $NF}' | sort -u | tr '\n' ' ')
+# 检测所有代理相关进程的监听端口（v2bx / nginx / xray / hysteria）
+PROXY_PROCS="v2bx|nginx|xray|hysteria"
+if ss -tlnp 2>/dev/null | grep -qiE "$PROXY_PROCS"; then
+    V2BX_PORTS=$(ss -tlnp 2>/dev/null | grep -iE "$PROXY_PROCS" | awk '{print $4}' | awk -F: '{print $NF}' | sort -u | tr '\n' ' ')
 fi
-if ss -ulnp state unconn 2>/dev/null | grep -qi "v2bx"; then
-    V2BX_UDP_PORTS=$(ss -ulnp state unconn 2>/dev/null | grep -i "v2bx" | awk '{print $4}' | awk -F: '{print $NF}' | sort -u | tr '\n' ' ')
+if ss -ulnp state unconn 2>/dev/null | grep -qiE "$PROXY_PROCS"; then
+    V2BX_UDP_PORTS=$(ss -ulnp state unconn 2>/dev/null | grep -iE "$PROXY_PROCS" | awk '{print $4}' | awk -F: '{print $NF}' | sort -u | tr '\n' ' ')
 fi
 
 if [[ -z "$V2BX_PORTS" && -z "$V2BX_UDP_PORTS" ]]; then
-    warn "未检测到 V2bX，仅放行 SSH 22"
-    warn "V2bX 启动后手动补充：ufw allow <端口> && ufw reload"
+    warn "未检测到代理进程，仅放行 SSH 22"
+    warn "服务启动后手动补充：ufw allow <端口> && ufw reload"
 else
-    [[ -n "$V2BX_PORTS" ]]     && info "V2bX TCP 端口：$V2BX_PORTS"
-    [[ -n "$V2BX_UDP_PORTS" ]] && info "V2bX UDP 端口：$V2BX_UDP_PORTS"
+    [[ -n "$V2BX_PORTS" ]]     && info "检测到 TCP 端口：$V2BX_PORTS"
+    [[ -n "$V2BX_UDP_PORTS" ]] && info "检测到 UDP 端口：$V2BX_UDP_PORTS"
 fi
 
 # =============================================================================
@@ -46,7 +48,7 @@ fi
 # =============================================================================
 section "安装依赖"
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
+apt-get update -qq || warn "部分仓库更新失败（不影响安装）"
 apt-get install -y -qq ufw fail2ban unattended-upgrades
 info "安装完成"
 
