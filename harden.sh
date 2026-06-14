@@ -47,25 +47,26 @@ info "安装完成"
 # =============================================================================
 section "检测代理端口"
 
-PROXY_PROCS="V2bX|v2bx|nginx|xray|hysteria"
+PROXY_PROCS="v2bx|v2node|nginx|xray|hysteria"
 PROXY_TCP=""
 PROXY_UDP=""
 
-if ss -tlnp 2>/dev/null | grep -qE "$PROXY_PROCS"; then
+if ss -tlnp 2>/dev/null | grep -qiE "$PROXY_PROCS"; then
     PROXY_TCP=$(ss -tlnp 2>/dev/null \
-        | grep -E "$PROXY_PROCS" \
+        | grep -iE "$PROXY_PROCS" \
         | awk '{print $4}' \
         | awk -F: '{print $NF}' \
+        | awk '$1+0 > 0 && $1+0 < 65536' \
         | sort -u | tr '\n' ' ')
 fi
 
-if ss -ulnp 2>/dev/null | grep -qE "$PROXY_PROCS"; then
+if ss -ulnp 2>/dev/null | grep -qiE "$PROXY_PROCS"; then
     PROXY_UDP=$(ss -ulnp 2>/dev/null \
-        | grep -E "$PROXY_PROCS" \
+        | grep -iE "$PROXY_PROCS" \
         | awk '{print $4}' \
         | awk -F: '{print $NF}' \
         | awk -F% '{print $1}' \
-        | awk '$1+0 > 0 && $1+0 < 60000' \
+        | awk '$1+0 > 0 && $1+0 < 65536' \
         | sort -u | tr '\n' ' ')
 fi
 
